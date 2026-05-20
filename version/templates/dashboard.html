@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App Version Dashboard</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #1a1a1e;
+            color: #e2e8f0;
+            margin: 0;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .card {
+            background-color: #24242b;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            margin-bottom: 30px;
+        }
+        .form-group {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 0;
+        }
+        input {
+            background-color: #1a1a1e;
+            border: 1px solid #3f3f46;
+            color: #f4f4f5;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 14px;
+            flex: 1;
+        }
+        input:focus {
+            outline: none;
+            border-color: #6366f1;
+        }
+        button {
+            background-color: #4f46e5;
+            color: #ffffff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        button:hover {
+            background-color: #4338ca;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+        th, td {
+            padding: 14px 16px;
+            border-bottom: 1px solid #3f3f46;
+        }
+        th {
+            font-weight: 600;
+            color: #a1a1aa;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+        td {
+            font-size: 15px;
+        }
+        .app-name {
+            font-weight: 600;
+            color: #ffffff;
+        }
+        .version-badge {
+            background-color: #3f3f46;
+            color: #e4e4e7;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>App Version Dashboard</h1>
+        
+        <div class="card">
+            <form id="versionForm" class="form-group">
+                <input type="text" id="appName" placeholder="애플리케이션 이름 (예: SkyboxAuto)" required>
+                <input type="text" id="version" placeholder="버전 (예: 1.0.0)" required>
+                <button type="submit">등록 / 수정</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Application Name</th>
+                        <th>Latest Version</th>
+                    </tr>
+                </thead>
+                <tbody id="versionTableBody">
+                    {% for app_name, version in versions.items() %}
+                    <tr id="row-{{ app_name }}">
+                        <td class="app-name">{{ app_name }}</td>
+                        <td><span class="version-badge">{{ version }}</span></td>
+                    </tr>
+                    {% else %}
+                    <tr id="emptyRow">
+                        <td colspan="2" style="text-align: center; color: #71717a;">등록된 애플리케이션이 없습니다.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('versionForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const appName = document.getElementById('appName').value.strip ? document.getElementById('appName').value.strip() : document.getElementById('appName').value.trim();
+            const version = document.getElementById('version').value.strip ? document.getElementById('version').value.strip() : document.getElementById('version').value.trim();
+
+            try {
+                const response = await fetch('/api/version', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ app_name: appName, version: version }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    const emptyRow = document.getElementById('emptyRow');
+                    if (emptyRow) emptyRow.remove();
+
+                    const existingRow = document.getElementById(`row-${appName}`);
+                    if (existingRow) {
+                        existingRow.querySelector('.version-badge').textContent = data.latest_version;
+                    } else {
+                        const tbody = document.getElementById('versionTableBody');
+                        const tr = document.createElement('tr');
+                        tr.id = `row-${appName}`;
+                        tr.innerHTML = `
+                            <td class="app-name">${appName}</td>
+                            <td><span class="version-badge">${data.latest_version}</span></td>
+                        `;
+                        tbody.appendChild(tr);
+                    }
+                    document.getElementById('versionForm').reset();
+                } else {
+                    alert(`오류: ${data.detail || '버전 업데이트에 실패했습니다.'}`);
+                }
+            } catch (error) {
+                alert('서버와 통신 중 오류가 발생했습니다.');
+            }
+        });
+    </script>
+</body>
+</html>
