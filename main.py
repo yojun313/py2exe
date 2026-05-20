@@ -34,6 +34,7 @@ from config import (
     DEFAULT_SPEC_NAME,
     DEFAULT_ISS_NAME,
     ISS_VERSION_PATTERN,
+    PROJECT_DIR,
 )
 from cloudflare import upload_file
 
@@ -44,29 +45,36 @@ def update_inno_version(iss_path: str, new_version: str):
     temp_iss_path = os.path.join(os.path.dirname(iss_path), "setup_temp.iss")
 
     with open(iss_path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
+        content = f.read()
 
-    updated_lines = []
-    for line in lines:
-        if re.match(ISS_VERSION_PATTERN, line):
-            define_keyword = line.split("MyAppVersion")[0] + "MyAppVersion"
-            new_line = f'{define_keyword} "{new_version}"\n'
-            updated_lines.append(new_line)
-        else:
-            updated_lines.append(line)
+    content = re.sub(
+        r'#define\s+MyAppVersion\s+"[\w.\-]+"',
+        f'#define MyAppVersion "{new_version}"',
+        content,
+        count=1
+    )
 
     with open(temp_iss_path, "w", encoding="utf-8") as f:
-        f.writelines(updated_lines)
+        f.write(content)
 
     return temp_iss_path
 
 
-def create_spec_file(original_spec_file, new_spec_file, exe_name):
+def create_spec_file(original_spec_file, new_spec_file, exe_name, folder_name):
     with open(original_spec_file, "r", encoding="utf-8") as file:
         spec_content = file.read()
 
     spec_content = re.sub(
-        r"name\s*=\s*['\"][^'\"]+['\"]", f"name='{exe_name}'", spec_content, count=1
+        r"name\s*=\s*['\"]SkyBoxAuto_VersionPlaceHolder['\"]", f"name='{folder_name}'", spec_content
+    )
+    
+    spec_content = re.sub(
+        r"name\s*=\s*['\"]SkyBoxAuto['\"]", f"name='{exe_name}'", spec_content
+    )
+
+    escaped_project_dir = PROJECT_DIR.replace("\\", "/")
+    spec_content = re.sub(
+        r"APP_PATH\s*=\s*.*", f"APP_PATH = '{escaped_project_dir}'", spec_content, count=1
     )
 
     with open(new_spec_file, "w", encoding="utf-8") as file:
@@ -85,15 +93,16 @@ def build_exe_from_spec(spec_file, output_directory, version, log_func=None):
 
     log(f"Building exe for spec: {spec_file}")
 
-    exe_name = f"{APP_NAME}_{version}"
-    new_spec_file = os.path.join(output_directory, f"{exe_name}.spec")
-    create_spec_file(spec_file, new_spec_file, exe_name)
+    folder_name = f"{APP_NAME}_{version}"
+    new_spec_file = os.path.join(output_directory, f"{folder_name}.spec")
+    create_spec_file(spec_file, new_spec_file, APP_NAME, folder_name)
 
     try:
         cmd = [
             VENV_PYTHON,
             "-m",
             "PyInstaller",
+            "--noconfirm",
             "--distpath",
             output_directory,
             "--workpath",
@@ -118,7 +127,7 @@ def build_exe_from_spec(spec_file, output_directory, version, log_func=None):
         if process.returncode != 0:
             raise subprocess.CalledProcessError(process.returncode, cmd)
 
-        log(f"Finished building {exe_name}.exe")
+        log(f"Finished building {APP_NAME} inside {folder_name}")
     finally:
         try:
             if os.path.exists(new_spec_file):
@@ -183,11 +192,10 @@ class BuildWorker(QObject):
         try:
             current_version = read_latest_built_version()
             if not current_version:
-                raise RuntimeError(
-                    f"{DEFAULT_ISS_NAME} 에서 현재 버전을 읽을 수 없습니다."
-                )
-
-            self._log(f"현재 버전: {current_version}")
+                self._log("이전 빌드 버전을 찾을 수 없어 기본값 '1.0.0'을 설정합니다.")
+                current_version = "1.0.0"
+            else:
+                self._log(f"현재 버전: {current_version}")
 
             if self.version_mode == "reuse":
                 target_version = current_version
@@ -233,13 +241,7 @@ class BuildWorker(QObject):
             built_folder_path = os.path.join(
                 self.output_directory, f"{APP_NAME}_{target_version}"
             )
-            raw_exe_old_path = os.path.join(
-                built_folder_path, f"{APP_NAME}_{target_version}.exe"
-            )
             raw_exe_new_path = os.path.join(built_folder_path, f"{APP_NAME}.exe")
-
-            if os.path.exists(raw_exe_old_path):
-                os.rename(raw_exe_old_path, raw_exe_new_path)
 
             update_exe_name = f"{APP_NAME}_{target_version}_update.exe"
             update_exe_path = os.path.join(self.output_directory, update_exe_name)
@@ -448,7 +450,7 @@ class MainWindow(QMainWindow):
         if version:
             self.current_version_label.setText(f"현재 버전: {version}")
         else:
-            self.current_version_label.setText("현재 버전: (알 수 없음)")
+            self.current_version_label.setText("현재 버전: 1.0.0 (기본값)")
 
     def start_build(self):
         if self.thread is not None:
@@ -514,7 +516,7 @@ class MainWindow(QMainWindow):
 def main():
     app = QApplication(sys.argv)
 
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = PROJECT_DIR if PROJECT_DIR else os.path.dirname(os.path.abspath(__file__))
     spec_file = os.path.join(base_dir, DEFAULT_SPEC_NAME)
     iss_path = os.path.join(base_dir, DEFAULT_ISS_NAME)
 
