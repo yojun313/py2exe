@@ -15,11 +15,11 @@ ISS_VERSION_PATTERN = os.getenv(
 
 
 # Path
-EXE_DIRECTORY = "D:/knpu/MANAGER/exe"  # pyinstaller output
-OUTPUT_DIRECTORY = "D:/knpu/MANAGER/output"  # inno setup output
-VENV_PYTHON = r"C:/GitHub/knpu/venv/Scripts/python.exe"  # venv
+EXE_DIRECTORY = os.getenv("EXE_DIRECTORY")  # pyinstaller output
+OUTPUT_DIRECTORY = os.getenv("OUTPUT_DIRECTORY")  # inno setup output
+VENV_PYTHON = os.getenv("VENV_PYTHON")  # venv
 INNO_SETUP_EXE = (
-    r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"  # inno setup executable
+    os.getenv("INNO_SETUP_EXE")  # inno setup executable
 )
 
 if not os.path.exists(EXE_DIRECTORY):
