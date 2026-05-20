@@ -1,0 +1,16 @@
+[project]
+name = "py2exe"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "boto3>=1.43.11",
+    "dotenv>=0.9.9",
+    "fastapi>=0.136.1",
+    "packaging>=26.2",
+    "pydantic>=2.13.4",
+    "pyside6>=6.11.1",
+    "requests>=2.34.2",
+    "uvicorn>=0.47.0",
+]
