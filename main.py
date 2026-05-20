@@ -256,8 +256,15 @@ class BuildWorker(QObject):
             temp_iss_path = update_inno_version(self.iss_path, target_version)
 
             self._log("Inno Setup 실행 중...")
+            inno_cmd = [
+                INNO_SETUP_EXE,
+                f"/DProjectBaseDir={os.path.dirname(EXE_DIRECTORY)}",
+                f"/DSourceIconPath={os.path.join(PROJECT_DIR, 'assets', 'imgs', 'icon.ico')}",
+                temp_iss_path
+            ]
+            
             process = subprocess.Popen(
-                [INNO_SETUP_EXE, temp_iss_path],
+                inno_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
