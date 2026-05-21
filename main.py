@@ -33,7 +33,6 @@ from config import (
     VERSION_PATTERN,
     DEFAULT_SPEC_NAME,
     DEFAULT_ISS_NAME,
-    ISS_VERSION_PATTERN,
     PROJECT_DIR,
 )
 from cloudflare import upload_file
@@ -51,7 +50,7 @@ def update_inno_version(iss_path: str, new_version: str):
         r'#define\s+MyAppVersion\s+"[\w.\-]+"',
         f'#define MyAppVersion "{new_version}"',
         content,
-        count=1
+        count=1,
     )
 
     with open(temp_iss_path, "w", encoding="utf-8") as f:
@@ -65,16 +64,21 @@ def create_spec_file(original_spec_file, new_spec_file, exe_name, folder_name):
         spec_content = file.read()
 
     spec_content = re.sub(
-        r"name\s*=\s*['\"]SkyBoxAuto_VersionPlaceHolder['\"]", f"name='{folder_name}'", spec_content
+        r"name\s*=\s*['\"]SkyBoxAuto_VersionPlaceHolder['\"]",
+        f"name='{folder_name}'",
+        spec_content,
     )
-    
+
     spec_content = re.sub(
         r"name\s*=\s*['\"]SkyBoxAuto['\"]", f"name='{exe_name}'", spec_content
     )
 
     escaped_project_dir = PROJECT_DIR.replace("\\", "/")
     spec_content = re.sub(
-        r"APP_PATH\s*=\s*.*", f"APP_PATH = '{escaped_project_dir}'", spec_content, count=1
+        r"APP_PATH\s*=\s*.*",
+        f"APP_PATH = '{escaped_project_dir}'",
+        spec_content,
+        count=1,
     )
 
     with open(new_spec_file, "w", encoding="utf-8") as file:
@@ -260,9 +264,9 @@ class BuildWorker(QObject):
                 INNO_SETUP_EXE,
                 f"/DProjectBaseDir={os.path.dirname(EXE_DIRECTORY)}",
                 f"/DSourceIconPath={os.path.join(PROJECT_DIR, 'assets', 'imgs', 'icon.ico')}",
-                temp_iss_path
+                temp_iss_path,
             ]
-            
+
             process = subprocess.Popen(
                 inno_cmd,
                 stdout=subprocess.PIPE,
@@ -523,7 +527,9 @@ class MainWindow(QMainWindow):
 def main():
     app = QApplication(sys.argv)
 
-    base_dir = PROJECT_DIR if PROJECT_DIR else os.path.dirname(os.path.abspath(__file__))
+    base_dir = (
+        PROJECT_DIR if PROJECT_DIR else os.path.dirname(os.path.abspath(__file__))
+    )
     spec_file = os.path.join(base_dir, DEFAULT_SPEC_NAME)
     iss_path = os.path.join(base_dir, DEFAULT_ISS_NAME)
 

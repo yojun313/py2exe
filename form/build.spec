@@ -1,7 +1,6 @@
 import os, platform
 
-ROOT_PATH = os.path.abspath(os.getcwd())
-APP_PATH = os.path.join(ROOT_PATH, "..")
+APP_PATH = os.path.abspath(os.getcwd())
 ASSETS_PATH = os.path.join(APP_PATH, "assets")
 
 ICON_FILE = "icon.ico" if platform.system() == "Windows" else "app_icon.icns"
@@ -32,7 +31,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='SkyboxAuto',
+    name='SkyBoxAuto',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -54,5 +53,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='SkyboxAuto'
+    name='SkyBoxAuto_VersionPlaceHolder'
 )
