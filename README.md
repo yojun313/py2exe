@@ -2,7 +2,7 @@
 
 py2exe는 Python 스크립트를 Windows 실행 파일(.exe) 및 설치 프로그램으로 패키징하고, 배포 및 버전 관리를 자동화하기 위한 통합 오케스트레이션 도구 모음입니다. 
 
-<img src="app.png" alt="screenshot" width="600">
+<img src="app.png" alt="screenshot">
 
 **PySide6 기반의 GUI 빌드 도구**와 **FastAPI 기반의 버전 관리 API 서버**를 동시에 포함하고 있어, 빌드부터 클라이언트 배포/업데이트 확인 릴리스 파이프라인까지 한 번에 관리할 수 있습니다.
 
