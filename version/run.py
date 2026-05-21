@@ -18,6 +18,7 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 class VersionUpdateSchema(BaseModel):
     app_name: str = Field(..., example="SkyboxAuto")
     version: str = Field(..., example="1.0.1")
+    base_url: str = Field(..., example="https://pub-c75a3247648841ad83651adb79e698de.r2.dev")
 
 
 def read_version_file() -> dict:
@@ -51,7 +52,7 @@ async def get_latest_version(app_name: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Application '{app_name}' not found."
         )
-    return {"app_name": app_name, "latest_version": versions[app_name]}
+    return {"app_name": app_name, **versions[app_name]}
 
 
 @app.post("/api/version", status_code=status.HTTP_200_OK)
@@ -64,15 +65,39 @@ async def update_latest_version(payload: VersionUpdateSchema):
             detail="Invalid version format. Use semantic versioning (e.g., 1.0.1)."
         )
     
+    v_str = str(validated_version)
+    clean_base_url = payload.base_url.strip().rstrip("/")
+    
+    download_url = f"{clean_base_url}/{payload.app_name}_{v_str}.exe"
+    update_url = f"{clean_base_url}/{payload.app_name}_{v_str}_update.exe"
+    
     versions = read_version_file()
-    versions[payload.app_name] = str(validated_version)
+    versions[payload.app_name] = {
+        "latest_version": v_str,
+        "download_url": download_url,
+        "update_url": update_url
+    }
     write_version_file(versions)
     
     return {
-        "message": "Version updated successfully",
+        "message": "Version and URLs generated successfully",
         "app_name": payload.app_name,
-        "latest_version": str(validated_version)
+        **versions[payload.app_name]
     }
+
+
+@app.delete("/api/version/{app_name}", status_code=status.HTTP_200_OK)
+async def delete_application(app_name: str):
+    versions = read_version_file()
+    if app_name not in versions:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Application '{app_name}' not found."
+        )
+    
+    del versions[app_name]
+    write_version_file(versions)
+    return {"message": f"Application '{app_name}' deleted successfully."}
 
 
 @app.get("/api/version/{app_name}/check", status_code=status.HTTP_200_OK)
@@ -92,14 +117,17 @@ async def check_update_required(app_name: str, client_version: str):
             detail=f"Application '{app_name}' not found."
         )
         
-    latest_v = Version(versions[app_name])
+    app_info = versions[app_name]
+    latest_v = Version(app_info["latest_version"])
     update_required = latest_v > client_v
     
     return {
         "app_name": app_name,
         "client_version": str(client_v),
         "latest_version": str(latest_v),
-        "update_required": update_required
+        "update_required": update_required,
+        "download_url": app_info.get("download_url", ""),
+        "update_url": app_info.get("update_url", "")
     }
 
 

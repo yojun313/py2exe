@@ -13,7 +13,7 @@
             padding: 40px 20px;
         }
         .container {
-            max-width: 900px;
+            max-width: 1200px;
             margin: 0 auto;
         }
         h1 {
@@ -31,10 +31,14 @@
         }
         .form-group {
             display: flex;
+            flex-direction: column;
             gap: 12px;
-            margin-bottom: 0;
         }
-        input {
+        .form-row {
+            display: flex;
+            gap: 12px;
+        }
+        input, select {
             background-color: #1a1a1e;
             border: 1px solid #3f3f46;
             color: #f4f4f5;
@@ -43,7 +47,7 @@
             font-size: 14px;
             flex: 1;
         }
-        input:focus {
+        input:focus, select:focus {
             outline: none;
             border-color: #6366f1;
         }
@@ -61,6 +65,14 @@
         button:hover {
             background-color: #4338ca;
         }
+        button.btn-delete {
+            background-color: #ef4444;
+            padding: 6px 12px;
+            font-size: 13px;
+        }
+        button.btn-delete:hover {
+            background-color: #dc2626;
+        }
         table {
             width: 100%;
             border-collapse: collapse;
@@ -77,11 +89,13 @@
             text-transform: uppercase;
         }
         td {
-            font-size: 15px;
+            font-size: 14px;
+            word-break: break-all;
         }
         .app-name {
             font-weight: 600;
             color: #ffffff;
+            font-size: 15px;
         }
         .version-badge {
             background-color: #3f3f46;
@@ -91,6 +105,13 @@
             font-family: monospace;
             font-size: 13px;
         }
+        .url-link {
+            color: #818cf8;
+            text-decoration: none;
+        }
+        .url-link:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -99,9 +120,23 @@
         
         <div class="card">
             <form id="versionForm" class="form-group">
-                <input type="text" id="appName" placeholder="애플리케이션 이름 (예: SkyboxAuto)" required>
-                <input type="text" id="version" placeholder="버전 (예: 1.0.0)" required>
-                <button type="submit">등록 / 수정</button>
+                <div class="form-row">
+                    <select id="appSelect" required>
+                        <option value="" disabled selected>애플리케이션 선택</option>
+                        {% for app_name in versions.keys() %}
+                        <option value="{{ app_name }}">{{ app_name }}</option>
+                        {% endfor %}
+                        <option value="__NEW__">+ 새 애플리케이션 추가</option>
+                    </select>
+                    <input type="text" id="appNameInput" placeholder="새 애플리케이션 이름 입력" style="display: none;">
+                    <input type="text" id="version" placeholder="버전 (예: 1.0.0)" required>
+                </div>
+                <div class="form-row">
+                    <input type="url" id="baseUrl" placeholder="Cloudflare R2 주소 (예: https://pub-c75a3247648841ad83651adb79e698de.r2.dev)" required>
+                </div>
+                <div style="text-align: right;">
+                    <button type="submit">등록 / 수정</button>
+                </div>
             </form>
         </div>
 
@@ -109,19 +144,27 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Application Name</th>
-                        <th>Latest Version</th>
+                        <th style="width: 15%;">Application Name</th>
+                        <th style="width: 12%;">Latest Version</th>
+                        <th style="width: 30%;">Download URL (Full)</th>
+                        <th style="width: 33%;">Update URL (Patch)</th>
+                        <th style="width: 10%; text-align: center;">Action</th>
                     </tr>
                 </thead>
                 <tbody id="versionTableBody">
-                    {% for app_name, version in versions.items() %}
+                    {% for app_name, info in versions.items() %}
                     <tr id="row-{{ app_name }}">
                         <td class="app-name">{{ app_name }}</td>
-                        <td><span class="version-badge">{{ version }}</span></td>
+                        <td><span class="version-badge">{{ info.latest_version }}</span></td>
+                        <td><a href="{{ info.download_url }}" class="url-link" target="_blank">{{ info.download_url }}</a></td>
+                        <td><a href="{{ info.update_url }}" class="url-link" target="_blank">{{ info.update_url }}</a></td>
+                        <td style="text-align: center;">
+                            <button type="button" class="btn-delete" onclick="deleteApp('{{ app_name }}')">삭제</button>
+                        </td>
                     </tr>
                     {% else %}
                     <tr id="emptyRow">
-                        <td colspan="2" style="text-align: center; color: #71717a;">등록된 애플리케이션이 없습니다.</td>
+                        <td colspan="5" style="text-align: center; color: #71717a;">등록된 애플리케이션이 없습니다.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -130,19 +173,78 @@
     </div>
 
     <script>
+        const appSelect = document.getElementById('appSelect');
+        const appNameInput = document.getElementById('appNameInput');
+        const versionInput = document.getElementById('version');
+
+        // 드롭다운 변경 감지
+        appSelect.addEventListener('change', function() {
+            if (this.value === '__NEW__') {
+                appNameInput.style.display = 'block';
+                appNameInput.required = true;
+            } else {
+                appNameInput.style.display = 'none';
+                appNameInput.required = false;
+                appNameInput.value = '';
+            }
+        });
+
+        // 이름 결정 유틸
+        function getSelectedAppName() {
+            if (appSelect.value === '__NEW__') {
+                return appNameInput.value.trim();
+            }
+            return appSelect.value;
+        }
+
+        // 삭제 처리 함수
+        async function deleteApp(appName) {
+            if (!confirm(` 정말 '${appName}' 애플리케이션을 삭제하시겠습니까?`)) return;
+
+            try {
+                const response = await fetch(`/api/version/${appName}`, { method: 'DELETE' });
+                if (response.ok) {
+                    document.getElementById(`row-${appName}`).remove();
+                    
+                    // 드롭다운 옵션에서도 삭제
+                    const optionToRemove = appSelect.querySelector(`option[value="${appName}"]`);
+                    if (optionToRemove) optionToRemove.remove();
+
+                    const tbody = document.getElementById('versionTableBody');
+                    if (tbody.children.length === 0) {
+                        tbody.innerHTML = `<tr id="emptyRow"><td colspan="5" style="text-align: center; color: #71717a;">등록된 애플리케이션이 없습니다.</td></tr>`;
+                    }
+                } else {
+                    const data = await response.json();
+                    alert(`삭제 실패: ${data.detail || '알 수 없는 오류'}`);
+                }
+            } catch (error) {
+                alert('서버와 통신 중 오류가 발생했습니다.');
+            }
+        }
+
+        // 등록 및 수정 폼 제출
         document.getElementById('versionForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            const appName = document.getElementById('appName').value.strip ? document.getElementById('appName').value.strip() : document.getElementById('appName').value.trim();
-            const version = document.getElementById('version').value.strip ? document.getElementById('version').value.strip() : document.getElementById('version').value.trim();
+            const appName = getSelectedAppName();
+            const version = versionInput.value.trim();
+            const baseUrl = document.getElementById('baseUrl').value.trim();
+
+            if (!appName) {
+                alert('애플리케이션 이름을 선택하거나 입력해주세요.');
+                return;
+            }
 
             try {
                 const response = await fetch('/api/version', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ app_name: appName, version: version }),
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        app_name: appName, 
+                        version: version,
+                        base_url: baseUrl
+                    }),
                 });
 
                 const data = await response.json();
@@ -154,17 +256,36 @@
                     const existingRow = document.getElementById(`row-${appName}`);
                     if (existingRow) {
                         existingRow.querySelector('.version-badge').textContent = data.latest_version;
+                        const links = existingRow.querySelectorAll('.url-link');
+                        links[0].href = data.download_url;
+                        links[0].textContent = data.download_url;
+                        links[1].href = data.update_url;
+                        links[1].textContent = data.update_url;
                     } else {
                         const tbody = document.getElementById('versionTableBody');
                         const tr = document.createElement('tr');
                         tr.id = `row-${appName}`;
                         tr.innerHTML = `
-                            <td class="app-name">${appName}</td>
+                            <td class="app-name">${data.app_name}</td>
                             <td><span class="version-badge">${data.latest_version}</span></td>
+                            <td><a href="${data.download_url}" class="url-link" target="_blank">${data.download_url}</a></td>
+                            <td><a href="${data.update_url}" class="url-link" target="_blank">${data.update_url}</a></td>
+                            <td style="text-align: center;">
+                                <button type="button" class="btn-delete" onclick="deleteApp('${data.app_name}')">삭제</button>
+                            </td>
                         `;
                         tbody.appendChild(tr);
+
+                        // 셀렉트 박스에 새로 등록된 앱 옵션 동적 추가
+                        const newOpt = document.createElement('option');
+                        newOpt.value = data.app_name;
+                        newOpt.textContent = data.app_name;
+                        appSelect.insertBefore(newOpt, appSelect.lastElementChild);
                     }
+                    
                     document.getElementById('versionForm').reset();
+                    appNameInput.style.display = 'none';
+                    appNameInput.required = false;
                 } else {
                     alert(`오류: ${data.detail || '버전 업데이트에 실패했습니다.'}`);
                 }

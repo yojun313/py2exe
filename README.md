@@ -1,6 +1,6 @@
 # py2exe
 
-py2exe는 Python 스크립트를 Windows 실행 파일(.exe) 및 설치 프로그램으로 패키징하고, 배포 및 버전 관리를 자동화하기 위한 통합 오케스트레이션 도구 모음입니다. 
+py2exe는 Python 스크립트를 Windows 실행 파일(.exe) 및 설치 프로그램으로 패키징하고, Cloudflare 배포 및 버전 관리를 자동화하기 위한 통합 도구 모음입니다. 
 
 <img src="app.png" alt="screenshot">
 
