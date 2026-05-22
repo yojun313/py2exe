@@ -23,7 +23,6 @@ AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={localappdata}\{#MyAppName}
 PrivilegesRequired=lowest                     
-AppId={{E9F30387-A1A2-479B-80C3-9ABABED9C40D}
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ChangesAssociations=yes
