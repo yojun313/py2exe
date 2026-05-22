@@ -180,7 +180,7 @@ class BuildWorker(QObject):
         self.app_config = app_config
         self.version_mode = version_mode
         self.custom_version = custom_version.strip()
-        self.upload_installer = upload_installer  # 추가
+        self.upload_installer = upload_installer
 
         self.app_name = app_config["APP_NAME"]
         self.project_dir = app_config["PROJECT_DIR"]
@@ -275,9 +275,7 @@ class BuildWorker(QObject):
             if os.path.exists(raw_exe_new_path):
                 shutil.copy2(raw_exe_new_path, update_exe_path)
 
-            upload_file(os.path.join(self.exe_directory, update_exe_name))
-            self._log("업로드 완료")
-
+            # Inno Setup 먼저 실행
             self._log("Inno Setup 버전 정보 업데이트")
             temp_iss_path = update_inno_version(self.iss_path, target_version)
 
@@ -314,18 +312,28 @@ class BuildWorker(QObject):
             except Exception as e:
                 self._log(f"[경고] 임시 파일 삭제 실패: {e}")
 
-            if self.upload_installer:
-                setup_filename = f"{self.app_name}_{target_version}.exe"
-                self._log(f"설치 파일을 업데이트용으로 업로드: {setup_filename}")
-                upload_file(os.path.join(self.output_directory, setup_filename))
-            else:
-                self._log(f"업데이트용 파일 업로드: {update_exe_name}")
-                upload_file(os.path.join(self.exe_directory, update_exe_name))
+            setup_filename = f"{self.app_name}_{target_version}.exe"
+            setup_file_path = os.path.join(self.output_directory, setup_filename)
 
-            self._log("업로드 완료")
+            if self.upload_installer:
+                # 체크O: 설치파일을 _update.exe 자리에도 복사해서 둘 다 설치파일로 업로드
+                self._log("설치 파일을 업데이트용으로도 사용 (파일 크기 동일)")
+                shutil.copy2(setup_file_path, update_exe_path)
+                upload_file(update_exe_path)
+                self._log(f"업데이트용 파일 업로드 완료: {update_exe_name}")
+                upload_file(setup_file_path)
+                self._log(f"설치용 파일 업로드 완료: {setup_filename}")
+            else:
+                # 체크X: 기존 방식 - 단일 exe를 업데이트용으로, 설치파일은 설치파일로 업로드
+                upload_file(update_exe_path)
+                self._log(f"업데이트용 파일 업로드 완료: {update_exe_name}")
+                upload_file(setup_file_path)
+                self._log(f"설치용 파일 업로드 완료: {setup_filename}")
 
             end_time = datetime.now()
             elapsed = end_time - start_time
+
+            self._log("Pushover 알림 전송 완료")
             self.finished.emit(target_version, elapsed.total_seconds())
 
         except Exception as e:
@@ -419,7 +427,9 @@ class MainWindow(QMainWindow):
         custom_layout.addWidget(self.custom_version_edit)
         mid_layout.addLayout(custom_layout)
 
-        self.upload_installer_check = QCheckBox("설치 파일 전체 업로드 (Inno Setup .exe)")
+        self.upload_installer_check = QCheckBox(
+            "업데이트를 전체 설치 파일로 배포 (Inno Setup .exe)"
+        )
         self.upload_installer_check.setChecked(False)
         self.upload_installer_check.setStyleSheet("color: #e8eaed;")
         mid_layout.addWidget(self.upload_installer_check)
@@ -516,7 +526,7 @@ class MainWindow(QMainWindow):
             app_config=current_app_config,
             version_mode=mode,
             custom_version=custom_version,
-            upload_installer=self.upload_installer_check.isChecked(),  
+            upload_installer=self.upload_installer_check.isChecked(),
         )
         self.worker.moveToThread(self.thread)
 
