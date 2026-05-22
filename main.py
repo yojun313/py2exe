@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QFrame,
     QComboBox,
+    QCheckBox,
 )
 from dotenv import load_dotenv
 from config import INNO_SETUP_EXE, APPS
@@ -50,7 +51,9 @@ def update_inno_version(iss_path: str, new_version: str):
     return temp_iss_path
 
 
-def create_spec_file(original_spec_file, new_spec_file, exe_name, folder_name, project_dir):
+def create_spec_file(
+    original_spec_file, new_spec_file, exe_name, folder_name, project_dir
+):
     with open(original_spec_file, "r", encoding="utf-8") as file:
         spec_content = file.read()
 
@@ -76,7 +79,9 @@ def create_spec_file(original_spec_file, new_spec_file, exe_name, folder_name, p
         file.write(spec_content)
 
 
-def build_exe_from_spec(spec_file, output_directory, version, app_config, log_func=None):
+def build_exe_from_spec(
+    spec_file, output_directory, version, app_config, log_func=None
+):
     def log(msg):
         if log_func:
             log_func(msg)
@@ -98,7 +103,7 @@ def build_exe_from_spec(spec_file, output_directory, version, app_config, log_fu
 
     try:
         cmd = [
-            venv_python,  
+            venv_python,
             "-m",
             "PyInstaller",
             "--noconfirm",
@@ -165,24 +170,30 @@ class BuildWorker(QObject):
 
     def __init__(
         self,
-        app_config: dict,
-        version_mode: str,
-        custom_version: str,
+        app_config,
+        version_mode,
+        custom_version,
+        upload_installer=False,
         parent=None,
     ):
         super().__init__(parent)
         self.app_config = app_config
         self.version_mode = version_mode
         self.custom_version = custom_version.strip()
-        
+        self.upload_installer = upload_installer  # 추가
+
         self.app_name = app_config["APP_NAME"]
         self.project_dir = app_config["PROJECT_DIR"]
         self.version_pattern = app_config["VERSION_PATTERN"]
-        
-        base_dir = self.project_dir if self.project_dir else os.path.dirname(os.path.abspath(__file__))
+
+        base_dir = (
+            self.project_dir
+            if self.project_dir
+            else os.path.dirname(os.path.abspath(__file__))
+        )
         self.spec_file = os.path.join(base_dir, app_config["DEFAULT_SPEC_NAME"])
         self.iss_path = os.path.join(base_dir, app_config["DEFAULT_ISS_NAME"])
-        
+
         self.exe_directory = app_config["EXE_DIRECTORY"]
         self.output_directory = app_config["OUTPUT_DIRECTORY"]
         self._is_running = True
@@ -202,7 +213,9 @@ class BuildWorker(QObject):
             if not os.path.exists(self.output_directory):
                 os.makedirs(self.output_directory)
 
-            current_version = read_latest_built_version(self.exe_directory, self.version_pattern)
+            current_version = read_latest_built_version(
+                self.exe_directory, self.version_pattern
+            )
             if not current_version:
                 self._log("이전 빌드 버전을 찾을 수 없어 기본값 '1.0.0'을 설정합니다.")
                 current_version = "1.0.0"
@@ -301,14 +314,18 @@ class BuildWorker(QObject):
             except Exception as e:
                 self._log(f"[경고] 임시 파일 삭제 실패: {e}")
 
-            setup_filename = f"{self.app_name}_{target_version}.exe"
-            self._log(f"신규 설치용 파일 업로드 시작: {setup_filename}")
-            upload_file(os.path.join(self.output_directory, setup_filename))
+            if self.upload_installer:
+                setup_filename = f"{self.app_name}_{target_version}.exe"
+                self._log(f"설치 파일을 업데이트용으로 업로드: {setup_filename}")
+                upload_file(os.path.join(self.output_directory, setup_filename))
+            else:
+                self._log(f"업데이트용 파일 업로드: {update_exe_name}")
+                upload_file(os.path.join(self.exe_directory, update_exe_name))
+
+            self._log("업로드 완료")
 
             end_time = datetime.now()
             elapsed = end_time - start_time
-
-            self._log("Pushover 알림 전송 완료")
             self.finished.emit(target_version, elapsed.total_seconds())
 
         except Exception as e:
@@ -322,7 +339,7 @@ class MainWindow(QMainWindow):
         self.worker: BuildWorker | None = None
 
         self.init_ui()
-        self.on_app_changed()  
+        self.on_app_changed()
 
     def init_ui(self):
         self.setWindowTitle("멀티 앱 빌드 및 배포 시스템")
@@ -339,7 +356,7 @@ class MainWindow(QMainWindow):
         title_layout = QHBoxLayout()
         title_label = QLabel("통합 빌드 시스템")
         title_label.setStyleSheet("font-size: 22px; font-weight: 600;")
-        
+
         self.app_combo = QComboBox()
         for app in APPS:
             self.app_combo.addItem(app["APP_NAME"], app)
@@ -402,6 +419,11 @@ class MainWindow(QMainWindow):
         custom_layout.addWidget(self.custom_version_edit)
         mid_layout.addLayout(custom_layout)
 
+        self.upload_installer_check = QCheckBox("설치 파일 전체 업로드 (Inno Setup .exe)")
+        self.upload_installer_check.setChecked(False)
+        self.upload_installer_check.setStyleSheet("color: #e8eaed;")
+        mid_layout.addWidget(self.upload_installer_check)
+
         build_btn_layout = QHBoxLayout()
         build_btn_layout.addStretch(1)
         self.build_button = QPushButton("빌드 시작")
@@ -444,15 +466,18 @@ class MainWindow(QMainWindow):
         current_app_config = self.app_combo.currentData()
         if not current_app_config:
             return
-            
+
         version = read_latest_built_version(
-            current_app_config["EXE_DIRECTORY"], 
-            current_app_config["VERSION_PATTERN"]
+            current_app_config["EXE_DIRECTORY"], current_app_config["VERSION_PATTERN"]
         )
         if version:
-            self.current_version_label.setText(f"[{current_app_config['APP_NAME']}] 현재 버전: {version}")
+            self.current_version_label.setText(
+                f"[{current_app_config['APP_NAME']}] 현재 버전: {version}"
+            )
         else:
-            self.current_version_label.setText(f"[{current_app_config['APP_NAME']}] 현재 버전: 1.0.0 (기본값)")
+            self.current_version_label.setText(
+                f"[{current_app_config['APP_NAME']}] 현재 버전: 1.0.0 (기본값)"
+            )
 
     def append_log(self, text: str):
         self.log_edit.appendPlainText(text)
@@ -467,7 +492,9 @@ class MainWindow(QMainWindow):
 
         current_app_config = self.app_combo.currentData()
         if not current_app_config:
-            QMessageBox.warning(self, "선택 오류", "선택된 앱 설정이 올바르지 않습니다.")
+            QMessageBox.warning(
+                self, "선택 오류", "선택된 앱 설정이 올바르지 않습니다."
+            )
             return
 
         if self.radio_reuse.isChecked():
@@ -489,6 +516,7 @@ class MainWindow(QMainWindow):
             app_config=current_app_config,
             version_mode=mode,
             custom_version=custom_version,
+            upload_installer=self.upload_installer_check.isChecked(),  
         )
         self.worker.moveToThread(self.thread)
 
