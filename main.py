@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QMessageBox,
     QFrame,
+    QComboBox,
 )
 from dotenv import load_dotenv
 from config import (
@@ -36,6 +37,7 @@ from config import (
     PROJECT_DIR,
 )
 from cloudflare import upload_file
+from config import APPS
 
 load_dotenv()
 
@@ -85,7 +87,7 @@ def create_spec_file(original_spec_file, new_spec_file, exe_name, folder_name):
         file.write(spec_content)
 
 
-def build_exe_from_spec(spec_file, output_directory, version, log_func=None):
+def build_exe_from_spec(spec_file, output_directory, version, app_config, log_func=None):
     def log(msg):
         if log_func:
             log_func(msg)
@@ -97,13 +99,17 @@ def build_exe_from_spec(spec_file, output_directory, version, log_func=None):
 
     log(f"Building exe for spec: {spec_file}")
 
-    folder_name = f"{APP_NAME}_{version}"
+    app_name = app_config["APP_NAME"]
+    project_dir = app_config["PROJECT_DIR"]
+    venv_python = app_config["VENV_PYTHON"]  # 앱 개별 설정에서 추출
+
+    folder_name = f"{app_name}_{version}"
     new_spec_file = os.path.join(output_directory, f"{folder_name}.spec")
-    create_spec_file(spec_file, new_spec_file, APP_NAME, folder_name)
+    create_spec_file(spec_file, new_spec_file, app_name, folder_name, project_dir)
 
     try:
         cmd = [
-            VENV_PYTHON,
+            venv_python,  
             "-m",
             "PyInstaller",
             "--noconfirm",
@@ -131,7 +137,7 @@ def build_exe_from_spec(spec_file, output_directory, version, log_func=None):
         if process.returncode != 0:
             raise subprocess.CalledProcessError(process.returncode, cmd)
 
-        log(f"Finished building {APP_NAME} inside {folder_name}")
+        log(f"Finished building {app_name} inside {folder_name}")
     finally:
         try:
             if os.path.exists(new_spec_file):
@@ -306,20 +312,20 @@ class BuildWorker(QObject):
             self.error.emit(str(e))
 
 
-class MainWindow(QMainWindow):
-    def __init__(self, spec_file: str, iss_path: str):
-        super().__init__()
-        self.spec_file = spec_file
-        self.iss_path = iss_path
 
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        # 더 이상 초기화 시 고정된 spec_file, iss_path를 받지 않습니다.
         self.thread: QThread | None = None
         self.worker: BuildWorker | None = None
 
         self.init_ui()
-        self.load_current_version()
+        self.on_app_changed()  # 첫 번째 앱 정보 로드
 
     def init_ui(self):
-        self.setWindowTitle(f"{APP_NAME} 빌드 및 배포 시스템")
+        self.setWindowTitle("멀티 앱 빌드 및 배포 시스템")
         self.setMinimumSize(800, 600)
 
         central = QWidget(self)
@@ -330,25 +336,35 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
 
-        title_label = QLabel(f"{APP_NAME} 빌드 및 배포 시스템")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("""
-            QLabel {
-                font-size: 22px;
-                font-weight: 600;
+        # 타이틀 레이아웃 수정
+        title_layout = QHBoxLayout()
+        title_label = QLabel("통합 빌드 시스템")
+        title_label.setStyleSheet("font-size: 22px; font-weight: 600;")
+        
+        # 앱 선택 콤보박스 추가
+        self.app_combo = QComboBox()
+        for app in APPS:
+            self.app_combo.addItem(app["APP_NAME"], app)
+        self.app_combo.setMinimumWidth(180)
+        self.app_combo.currentIndexChanged.connect(self.on_app_changed)
+        self.app_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #2b2b2b;
+                border: 1px solid #5f6368;
+                border-radius: 4px;
+                padding: 5px;
+                color: #f0f0f0;
             }
         """)
+
+        title_layout.addWidget(title_label)
+        title_layout.addStretch(1)
+        title_layout.addWidget(self.app_combo)
+        main_layout.addLayout(title_layout)
 
         self.current_version_label = QLabel("현재 버전: -")
         self.current_version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.current_version_label.setStyleSheet("""
-            QLabel {
-                font-size: 14px;
-                color: #bbbbbb;
-            }
-        """)
-
-        main_layout.addWidget(title_label)
+        self.current_version_label.setStyleSheet("font-size: 14px; color: #bbbbbb;")
         main_layout.addWidget(self.current_version_label)
 
         line = QFrame()
@@ -386,7 +402,6 @@ class MainWindow(QMainWindow):
         self.custom_version_edit.setPlaceholderText("예: 1.2.3")
         custom_layout.addWidget(custom_label)
         custom_layout.addWidget(self.custom_version_edit)
-
         mid_layout.addLayout(custom_layout)
 
         build_btn_layout = QHBoxLayout()
@@ -418,37 +433,28 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.log_edit, stretch=1)
 
         self.setStyleSheet("""
-            QMainWindow {
-                background-color: #202124;
-                color: #f0f0f0;
-            }
-            QWidget {
-                background-color: #202124;
-                color: #f0f0f0;
-            }
-            QPushButton {
-                background-color: #3c4043;
-                border-radius: 6px;
-                padding: 8px 14px;
-            }
-            QPushButton:hover {
-                background-color: #5f6368;
-            }
-            QPushButton:disabled {
-                background-color: #3c4043;
-                color: #777777;
-            }
-            QRadioButton, QLabel {
-                color: #e8eaed;
-            }
-            QLineEdit {
-                background-color: #2b2b2b;
-                border-radius: 4px;
-                padding: 4px 8px;
-                border: 1px solid #5f6368;
-                color: #f0f0f0;
-            }
+            QMainWindow { background-color: #202124; color: #f0f0f0; }
+            QWidget { background-color: #202124; color: #f0f0f0; }
+            QPushButton { background-color: #3c4043; border-radius: 6px; padding: 8px 14px; }
+            QPushButton:hover { background-color: #5f6368; }
+            QPushButton:disabled { background-color: #3c4043; color: #777777; }
+            QRadioButton, QLabel { color: #e8eaed; }
+            QLineEdit { background-color: #2b2b2b; border-radius: 4px; padding: 4px 8px; border: 1px solid #5f6368; color: #f0f0f0; }
         """)
+
+    def on_app_changed(self):
+        current_app_config = self.app_combo.currentData()
+        if not current_app_config:
+            return
+            
+        version = read_latest_built_version(
+            current_app_config["EXE_DIRECTORY"], 
+            current_app_config["VERSION_PATTERN"]
+        )
+        if version:
+            self.current_version_label.setText(f"[{current_app_config['APP_NAME']}] 현재 버전: {version}")
+        else:
+            self.current_version_label.setText(f"[{current_app_config['APP_NAME']}] 현재 버전: 1.0.0 (기본값)")
 
     def append_log(self, text: str):
         self.log_edit.appendPlainText(text)
@@ -456,16 +462,14 @@ class MainWindow(QMainWindow):
             self.log_edit.verticalScrollBar().maximum()
         )
 
-    def load_current_version(self):
-        version = read_latest_built_version()
-        if version:
-            self.current_version_label.setText(f"현재 버전: {version}")
-        else:
-            self.current_version_label.setText("현재 버전: 1.0.0 (기본값)")
-
     def start_build(self):
         if self.thread is not None:
             QMessageBox.warning(self, "빌드 실행 중", "이미 빌드가 진행 중입니다.")
+            return
+
+        current_app_config = self.app_combo.currentData()
+        if not current_app_config:
+            QMessageBox.warning(self, "선택 오류", "선택된 앱 설정이 올바르지 않습니다.")
             return
 
         if self.radio_reuse.isChecked():
@@ -478,15 +482,15 @@ class MainWindow(QMainWindow):
         custom_version = self.custom_version_edit.text()
 
         self.log_edit.clear()
-        self.append_log("=== 빌드 작업 시작 ===")
+        self.append_log(f"=== [{current_app_config['APP_NAME']}] 빌드 작업 시작 ===")
         self.build_button.setEnabled(False)
+        self.app_combo.setEnabled(False)
 
         self.thread = QThread(self)
         self.worker = BuildWorker(
+            app_config=current_app_config,
             version_mode=mode,
             custom_version=custom_version,
-            spec_file=self.spec_file,
-            iss_path=self.iss_path,
         )
         self.worker.moveToThread(self.thread)
 
@@ -506,16 +510,19 @@ class MainWindow(QMainWindow):
         self.thread = None
         self.worker = None
         self.build_button.setEnabled(True)
+        self.app_combo.setEnabled(True)
 
     def on_build_finished(self, version: str, elapsed_seconds: float):
+        current_app_config = self.app_combo.currentData()
+        app_name = current_app_config["APP_NAME"] if current_app_config else "APP"
         self.append_log(
-            f"=== 빌드 완료: {APP_NAME}_{version} "
+            f"=== 빌드 완료: {app_name}_{version} "
             f"({int(elapsed_seconds // 60)}분 {int(elapsed_seconds % 60)}초) ==="
         )
         QMessageBox.information(
-            self, "빌드 완료", f"{APP_NAME} {version} 빌드 및 배포가 완료되었습니다."
+            self, "빌드 완료", f"{app_name} {version} 빌드 및 배포가 완료되었습니다."
         )
-        self.load_current_version()
+        self.on_app_changed()
 
     def on_build_error(self, message: str):
         self.append_log(f"[오류] {message}")
@@ -526,18 +533,9 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-
-    base_dir = (
-        PROJECT_DIR if PROJECT_DIR else os.path.dirname(os.path.abspath(__file__))
-    )
-    spec_file = os.path.join(base_dir, DEFAULT_SPEC_NAME)
-    iss_path = os.path.join(base_dir, DEFAULT_ISS_NAME)
-
-    window = MainWindow(spec_file, iss_path)
+    window = MainWindow()
     window.show()
-
     sys.exit(app.exec())
-
 
 if __name__ == "__main__":
     main()

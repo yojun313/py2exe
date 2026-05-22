@@ -1,34 +1,22 @@
 import os
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Build Setting
-APP_NAME = os.getenv("BUILD_APP_NAME", "MANAGER")
-PROJECT_DIR = os.getenv("BUILD_PROJECT_DIR", "")
-VERSION_PATTERN = os.getenv("BUILD_VERSION_PATTERN", r"MANAGER_([\w.\-]+)$")
-DEFAULT_SPEC_NAME = os.getenv("BUILD_DEFAULT_SPEC_NAME", "build.spec")
-DEFAULT_ISS_NAME = os.getenv("BUILD_DEFAULT_ISS_NAME", "setup.iss")
-ISS_VERSION_PATTERN = os.getenv(
-    "BUILD_ISS_VERSION_PATTERN", r'^\s*#define\s+MyAppVersion\s+"([\w.\-]+)"'
-)
+CONFIG_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
+def load_apps_config():
+    if not os.path.exists(CONFIG_JSON_PATH):
+        raise FileNotFoundError(f"config.json 파일을 찾을 수 없습니다: {CONFIG_JSON_PATH}")
+    with open(CONFIG_JSON_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-# Path
-EXE_DIRECTORY = os.getenv("EXE_DIRECTORY")  # pyinstaller output
-OUTPUT_DIRECTORY = os.getenv("OUTPUT_DIRECTORY")  # inno setup output
-VENV_PYTHON = os.getenv("VENV_PYTHON")  # venv
-INNO_SETUP_EXE = (
-    os.getenv("INNO_SETUP_EXE")  # inno setup executable
-)
+config_data = load_apps_config()
+APPS = config_data.get("apps", [])
+COMMON = config_data.get("common", {})
+INNO_SETUP_EXE = COMMON.get("INNO_SETUP_EXE", "")
 
-if not os.path.exists(EXE_DIRECTORY):
-    os.makedirs(EXE_DIRECTORY)
-if not os.path.exists(OUTPUT_DIRECTORY):
-    os.makedirs(OUTPUT_DIRECTORY)
-
-
-# Cloudflare R2
 ACCESS_KEY_ID = os.getenv("ACCESS_KEY_ID")
 SECRET_ACCESS_KEY = os.getenv("SECRET_ACCESS_KEY")
 ACCOUNT_ID = os.getenv("ACCOUNT_ID")

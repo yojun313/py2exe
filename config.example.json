@@ -1,0 +1,18 @@
+{
+    "apps": [
+      {
+        "APP_NAME": "YourAppName",
+        "PROJECT_DIR": "C:/path/to/your_app_project",
+        "VERSION_PATTERN": "YourAppName_([\\w.\\-]+)$",
+        "DEFAULT_SPEC_NAME": "build.spec",
+        "DEFAULT_ISS_NAME": "setup.iss",
+        "ISS_VERSION_PATTERN": "^\\s*#define\\s+MyAppVersion\\s+\"([\\w.\\-]+)\"",
+        "EXE_DIRECTORY": "C:/path/to/your_app_project/dist",
+        "OUTPUT_DIRECTORY": "C:/path/to/your_app_project/output",
+        "VENV_PYTHON": "C:/path/to/your_app_project/venv/Scripts/python.exe"
+      }
+    ],
+    "common": {
+      "INNO_SETUP_EXE": "C:/Program Files (x86)/Inno Setup 6/ISCC.exe"
+    }
+  }
