@@ -25,19 +25,8 @@ from PySide6.QtWidgets import (
     QComboBox,
 )
 from dotenv import load_dotenv
-from config import (
-    VENV_PYTHON,
-    INNO_SETUP_EXE,
-    EXE_DIRECTORY,
-    OUTPUT_DIRECTORY,
-    APP_NAME,
-    VERSION_PATTERN,
-    DEFAULT_SPEC_NAME,
-    DEFAULT_ISS_NAME,
-    PROJECT_DIR,
-)
+from config import INNO_SETUP_EXE, APPS
 from cloudflare import upload_file
-from config import APPS
 
 load_dotenv()
 
@@ -61,7 +50,7 @@ def update_inno_version(iss_path: str, new_version: str):
     return temp_iss_path
 
 
-def create_spec_file(original_spec_file, new_spec_file, exe_name, folder_name):
+def create_spec_file(original_spec_file, new_spec_file, exe_name, folder_name, project_dir):
     with open(original_spec_file, "r", encoding="utf-8") as file:
         spec_content = file.read()
 
@@ -75,7 +64,7 @@ def create_spec_file(original_spec_file, new_spec_file, exe_name, folder_name):
         r"name\s*=\s*['\"]SkyBoxAuto['\"]", f"name='{exe_name}'", spec_content
     )
 
-    escaped_project_dir = PROJECT_DIR.replace("\\", "/")
+    escaped_project_dir = project_dir.replace("\\", "/")
     spec_content = re.sub(
         r"APP_PATH\s*=\s*.*",
         f"APP_PATH = '{escaped_project_dir}'",
@@ -101,7 +90,7 @@ def build_exe_from_spec(spec_file, output_directory, version, app_config, log_fu
 
     app_name = app_config["APP_NAME"]
     project_dir = app_config["PROJECT_DIR"]
-    venv_python = app_config["VENV_PYTHON"]  # 앱 개별 설정에서 추출
+    venv_python = app_config["VENV_PYTHON"]
 
     folder_name = f"{app_name}_{version}"
     new_spec_file = os.path.join(output_directory, f"{folder_name}.spec")
@@ -150,13 +139,13 @@ def build_exe_from_spec(spec_file, output_directory, version, app_config, log_fu
             log(f"Error: {e}")
 
 
-def read_latest_built_version() -> str | None:
-    if not os.path.exists(EXE_DIRECTORY):
+def read_latest_built_version(exe_directory, version_pattern) -> str | None:
+    if not os.path.exists(exe_directory):
         return None
 
     versions = []
-    for name in os.listdir(EXE_DIRECTORY):
-        match = re.match(VERSION_PATTERN, name)
+    for name in os.listdir(exe_directory):
+        match = re.match(version_pattern, name)
         if match:
             try:
                 versions.append(Version(match.group(1)))
@@ -176,18 +165,26 @@ class BuildWorker(QObject):
 
     def __init__(
         self,
+        app_config: dict,
         version_mode: str,
         custom_version: str,
-        spec_file: str,
-        iss_path: str,
         parent=None,
     ):
         super().__init__(parent)
+        self.app_config = app_config
         self.version_mode = version_mode
         self.custom_version = custom_version.strip()
-        self.spec_file = spec_file
-        self.iss_path = iss_path
-        self.output_directory = EXE_DIRECTORY
+        
+        self.app_name = app_config["APP_NAME"]
+        self.project_dir = app_config["PROJECT_DIR"]
+        self.version_pattern = app_config["VERSION_PATTERN"]
+        
+        base_dir = self.project_dir if self.project_dir else os.path.dirname(os.path.abspath(__file__))
+        self.spec_file = os.path.join(base_dir, app_config["DEFAULT_SPEC_NAME"])
+        self.iss_path = os.path.join(base_dir, app_config["DEFAULT_ISS_NAME"])
+        
+        self.exe_directory = app_config["EXE_DIRECTORY"]
+        self.output_directory = app_config["OUTPUT_DIRECTORY"]
         self._is_running = True
 
     def stop(self):
@@ -200,7 +197,12 @@ class BuildWorker(QObject):
     def run(self):
         start_time = datetime.now()
         try:
-            current_version = read_latest_built_version()
+            if not os.path.exists(self.exe_directory):
+                os.makedirs(self.exe_directory)
+            if not os.path.exists(self.output_directory):
+                os.makedirs(self.output_directory)
+
+            current_version = read_latest_built_version(self.exe_directory, self.version_pattern)
             if not current_version:
                 self._log("이전 빌드 버전을 찾을 수 없어 기본값 '1.0.0'을 설정합니다.")
                 current_version = "1.0.0"
@@ -226,14 +228,14 @@ class BuildWorker(QObject):
             self._log(f"빌드 대상 버전: {target_version}")
 
             same_version_path = os.path.join(
-                self.output_directory, f"{APP_NAME}_{target_version}"
+                self.exe_directory, f"{self.app_name}_{target_version}"
             )
             if os.path.exists(same_version_path):
                 shutil.rmtree(same_version_path)
                 self._log(f"이전 동일 버전 디렉토리 삭제: {same_version_path}")
 
             old_update_exe_path = os.path.join(
-                self.output_directory, f"{APP_NAME}_{target_version}_update.exe"
+                self.exe_directory, f"{self.app_name}_{target_version}_update.exe"
             )
             if os.path.exists(old_update_exe_path):
                 os.remove(old_update_exe_path)
@@ -242,24 +244,25 @@ class BuildWorker(QObject):
             self._log("PyInstaller 빌드 시작")
             build_exe_from_spec(
                 self.spec_file,
-                self.output_directory,
+                self.exe_directory,
                 target_version,
+                self.app_config,
                 log_func=self._log,
             )
             self._log("PyInstaller 빌드 완료")
 
             built_folder_path = os.path.join(
-                self.output_directory, f"{APP_NAME}_{target_version}"
+                self.exe_directory, f"{self.app_name}_{target_version}"
             )
-            raw_exe_new_path = os.path.join(built_folder_path, f"{APP_NAME}.exe")
+            raw_exe_new_path = os.path.join(built_folder_path, f"{self.app_name}.exe")
 
-            update_exe_name = f"{APP_NAME}_{target_version}_update.exe"
-            update_exe_path = os.path.join(self.output_directory, update_exe_name)
+            update_exe_name = f"{self.app_name}_{target_version}_update.exe"
+            update_exe_path = os.path.join(self.exe_directory, update_exe_name)
 
             if os.path.exists(raw_exe_new_path):
                 shutil.copy2(raw_exe_new_path, update_exe_path)
 
-            upload_file(os.path.join(self.output_directory, update_exe_name))
+            upload_file(os.path.join(self.exe_directory, update_exe_name))
             self._log("업로드 완료")
 
             self._log("Inno Setup 버전 정보 업데이트")
@@ -268,8 +271,8 @@ class BuildWorker(QObject):
             self._log("Inno Setup 실행 중...")
             inno_cmd = [
                 INNO_SETUP_EXE,
-                f"/DProjectBaseDir={os.path.dirname(EXE_DIRECTORY)}",
-                f"/DSourceIconPath={os.path.join(PROJECT_DIR, 'assets', 'imgs', 'icon.ico')}",
+                f"/DProjectBaseDir={os.path.dirname(self.exe_directory)}",
+                f"/DSourceIconPath={os.path.join(self.project_dir, 'assets', 'imgs', 'icon.ico')}",
                 temp_iss_path,
             ]
 
@@ -298,9 +301,9 @@ class BuildWorker(QObject):
             except Exception as e:
                 self._log(f"[경고] 임시 파일 삭제 실패: {e}")
 
-            setup_filename = f"{APP_NAME}_{target_version}.exe"
+            setup_filename = f"{self.app_name}_{target_version}.exe"
             self._log(f"신규 설치용 파일 업로드 시작: {setup_filename}")
-            upload_file(os.path.join(OUTPUT_DIRECTORY, setup_filename))
+            upload_file(os.path.join(self.output_directory, setup_filename))
 
             end_time = datetime.now()
             elapsed = end_time - start_time
@@ -312,17 +315,14 @@ class BuildWorker(QObject):
             self.error.emit(str(e))
 
 
-
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        # 더 이상 초기화 시 고정된 spec_file, iss_path를 받지 않습니다.
         self.thread: QThread | None = None
         self.worker: BuildWorker | None = None
 
         self.init_ui()
-        self.on_app_changed()  # 첫 번째 앱 정보 로드
+        self.on_app_changed()  
 
     def init_ui(self):
         self.setWindowTitle("멀티 앱 빌드 및 배포 시스템")
@@ -336,12 +336,10 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
 
-        # 타이틀 레이아웃 수정
         title_layout = QHBoxLayout()
         title_label = QLabel("통합 빌드 시스템")
         title_label.setStyleSheet("font-size: 22px; font-weight: 600;")
         
-        # 앱 선택 콤보박스 추가
         self.app_combo = QComboBox()
         for app in APPS:
             self.app_combo.addItem(app["APP_NAME"], app)
@@ -536,6 +534,7 @@ def main():
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()
