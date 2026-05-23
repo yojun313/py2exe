@@ -19,7 +19,6 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 class VersionUpdateSchema(BaseModel):
     app_name: str = Field(..., example="SkyboxAuto")
     version: str = Field(..., example="1.0.1")
-    # 새 앱 등록 시에는 필수지만, 기존 앱 업데이트 시에는 필수 항목이 아니도록 설정합니다.
     base_url: Optional[str] = Field(None)
 
 
@@ -28,7 +27,7 @@ def read_version_file() -> dict:
         with open(VERSION_FILE, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_VERSIONS, f, ensure_ascii=False, indent=4)
         return DEFAULT_VERSIONS
-    
+
     try:
         with open(VERSION_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -66,28 +65,27 @@ async def update_latest_version(payload: VersionUpdateSchema):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid version format. Use semantic versioning (e.g., 1.0.1)."
         )
-    
+
     v_str = str(validated_version)
     versions = read_version_file()
-    
-    # 1. URL 재활용 로직 핵심 부분
-    clean_base_url = ""
-    if payload.base_url and payload.base_url.strip():
-        clean_base_url = payload.base_url.strip().rstrip("/")
-    elif payload.app_name in versions and "base_url" in versions[payload.app_name]:
-        # 입력폼이 비어있고 기존에 등록된 앱이라면 기존 base_url을 그대로 재활용합니다.
+
+    is_existing_app = payload.app_name in versions
+
+    if is_existing_app:
+        # 기존 앱: 요청에 base_url이 있더라도 무시하고 저장된 base_url을 그대로 사용합니다.
         clean_base_url = versions[payload.app_name]["base_url"]
     else:
-        # 완전히 새로 추가하는 앱인데 base_url이 누락된 경우 예외 처리합니다.
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Base URL is required for new applications."
-        )
-    
+        # 신규 앱: base_url이 반드시 필요합니다.
+        if not payload.base_url or not payload.base_url.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Base URL is required for new applications."
+            )
+        clean_base_url = payload.base_url.strip().rstrip("/")
+
     download_url = f"{clean_base_url}/{payload.app_name}_{v_str}.exe"
     update_url = f"{clean_base_url}/{payload.app_name}_{v_str}_update.exe"
-    
-    # JSON 파일 내부에도 base_url 필드를 함께 저장해둡니다.
+
     versions[payload.app_name] = {
         "latest_version": v_str,
         "base_url": clean_base_url,
@@ -95,10 +93,11 @@ async def update_latest_version(payload: VersionUpdateSchema):
         "update_url": update_url
     }
     write_version_file(versions)
-    
+
     return {
         "message": "Version and URLs generated successfully",
         "app_name": payload.app_name,
+        "is_new_app": not is_existing_app,
         **versions[payload.app_name]
     }
 
@@ -111,7 +110,7 @@ async def delete_application(app_name: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Application '{app_name}' not found."
         )
-    
+
     del versions[app_name]
     write_version_file(versions)
     return {"message": f"Application '{app_name}' deleted successfully."}
@@ -126,18 +125,18 @@ async def check_update_required(app_name: str, client_version: str):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid client version format."
         )
-        
+
     versions = read_version_file()
     if app_name not in versions:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Application '{app_name}' not found."
         )
-        
+
     app_info = versions[app_name]
     latest_v = Version(app_info["latest_version"])
     update_required = latest_v > client_v
-    
+
     return {
         "app_name": app_name,
         "client_version": str(client_v),
@@ -152,8 +151,8 @@ async def check_update_required(app_name: str, client_version: str):
 async def render_dashboard(request: Request):
     versions = read_version_file()
     return templates.TemplateResponse(
-        request=request, 
-        name="dashboard.html", 
+        request=request,
+        name="dashboard.html",
         context={"versions": versions}
     )
 
