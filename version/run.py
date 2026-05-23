@@ -1,5 +1,6 @@
 import os
 import json
+from typing import Optional
 from fastapi import FastAPI, HTTPException, status, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -18,7 +19,8 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 class VersionUpdateSchema(BaseModel):
     app_name: str = Field(..., example="SkyboxAuto")
     version: str = Field(..., example="1.0.1")
-    base_url: str = Field(..., example="https://pub-c75a3247648841ad83651adb79e698de.r2.dev")
+    # 새 앱 등록 시에는 필수지만, 기존 앱 업데이트 시에는 필수 항목이 아니도록 설정합니다.
+    base_url: Optional[str] = Field(None)
 
 
 def read_version_file() -> dict:
@@ -66,14 +68,29 @@ async def update_latest_version(payload: VersionUpdateSchema):
         )
     
     v_str = str(validated_version)
-    clean_base_url = payload.base_url.strip().rstrip("/")
+    versions = read_version_file()
+    
+    # 1. URL 재활용 로직 핵심 부분
+    clean_base_url = ""
+    if payload.base_url and payload.base_url.strip():
+        clean_base_url = payload.base_url.strip().rstrip("/")
+    elif payload.app_name in versions and "base_url" in versions[payload.app_name]:
+        # 입력폼이 비어있고 기존에 등록된 앱이라면 기존 base_url을 그대로 재활용합니다.
+        clean_base_url = versions[payload.app_name]["base_url"]
+    else:
+        # 완전히 새로 추가하는 앱인데 base_url이 누락된 경우 예외 처리합니다.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Base URL is required for new applications."
+        )
     
     download_url = f"{clean_base_url}/{payload.app_name}_{v_str}.exe"
     update_url = f"{clean_base_url}/{payload.app_name}_{v_str}_update.exe"
     
-    versions = read_version_file()
+    # JSON 파일 내부에도 base_url 필드를 함께 저장해둡니다.
     versions[payload.app_name] = {
         "latest_version": v_str,
+        "base_url": clean_base_url,
         "download_url": download_url,
         "update_url": update_url
     }

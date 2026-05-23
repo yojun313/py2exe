@@ -176,16 +176,32 @@
         const appSelect = document.getElementById('appSelect');
         const appNameInput = document.getElementById('appNameInput');
         const versionInput = document.getElementById('version');
+        const baseUrlInput = document.getElementById('baseUrl');
 
-        // 드롭다운 변경 감지
+        // Jinja2 템플릿의 데이터를 JavaScript 객체 형태로 안전하게 가져와서 참조합니다.
+        const currentVersionsData = {{ versions|tojson }};
+
+        // 드롭다운 변경 감지 시 주소 자동 매핑 로직 추가
         appSelect.addEventListener('change', function() {
             if (this.value === '__NEW__') {
                 appNameInput.style.display = 'block';
                 appNameInput.required = true;
+                baseUrlInput.value = ''; // 새 앱 등록 시 주소창 초기화
+                baseUrlInput.required = true;
             } else {
                 appNameInput.style.display = 'none';
                 appNameInput.required = false;
                 appNameInput.value = '';
+                
+                // 기존에 등록된 앱을 선택했다면 저장되어 있던 base_url을 가져와서 채워줍니다.
+                const appInfo = currentVersionsData[this.value];
+                if (appInfo && appInfo.base_url) {
+                    baseUrlInput.value = appInfo.base_url;
+                    baseUrlInput.required = false; // 기존 주소가 있으므로 필수 입력 해제 가능
+                } else {
+                    baseUrlInput.value = '';
+                    baseUrlInput.required = true;
+                }
             }
         });
 
@@ -205,6 +221,9 @@
                 const response = await fetch(`/api/version/${appName}`, { method: 'DELETE' });
                 if (response.ok) {
                     document.getElementById(`row-${appName}`).remove();
+                    
+                    // 캐시 데이터에서도 삭제
+                    delete currentVersionsData[appName];
                     
                     // 드롭다운 옵션에서도 삭제
                     const optionToRemove = appSelect.querySelector(`option[value="${appName}"]`);
@@ -229,7 +248,7 @@
             
             const appName = getSelectedAppName();
             const version = versionInput.value.trim();
-            const baseUrl = document.getElementById('baseUrl').value.trim();
+            const baseUrl = baseUrlInput.value.trim();
 
             if (!appName) {
                 alert('애플리케이션 이름을 선택하거나 입력해주세요.');
@@ -243,7 +262,7 @@
                     body: JSON.stringify({ 
                         app_name: appName, 
                         version: version,
-                        base_url: baseUrl
+                        base_url: baseUrl // 공백으로 넘겨도 서버단에서 매핑 처리됨
                     }),
                 });
 
@@ -252,6 +271,14 @@
                 if (response.ok) {
                     const emptyRow = document.getElementById('emptyRow');
                     if (emptyRow) emptyRow.remove();
+
+                    // 로컬 캐시 데이터 동적 갱신
+                    currentVersionsData[appName] = {
+                        latest_version: data.latest_version,
+                        base_url: data.base_url,
+                        download_url: data.download_url,
+                        update_url: data.update_url
+                    };
 
                     const existingRow = document.getElementById(`row-${appName}`);
                     if (existingRow) {
