@@ -132,7 +132,7 @@
                     <input type="text" id="version" placeholder="버전 (예: 1.0.0)" required>
                 </div>
                 <div class="form-row">
-                    <input type="url" id="baseUrl" placeholder="Cloudflare R2 주소 (예: https://pub-c75a3247648841ad83651adb79e698de.r2.dev)" required>
+                    <input type="url" id="baseUrl" placeholder="Cloudflare R2 주소 (예: https://pub-c75a3247648841ad83651adb79e698de.r2.dev)">
                 </div>
                 <div style="text-align: right;">
                     <button type="submit">등록 / 수정</button>
@@ -178,34 +178,30 @@
         const versionInput = document.getElementById('version');
         const baseUrlInput = document.getElementById('baseUrl');
 
-        // Jinja2 템플릿의 데이터를 JavaScript 객체 형태로 안전하게 가져와서 참조합니다.
         const currentVersionsData = {{ versions|tojson }};
 
-        // 드롭다운 변경 감지 시 주소 자동 매핑 로직 추가
         appSelect.addEventListener('change', function() {
             if (this.value === '__NEW__') {
                 appNameInput.style.display = 'block';
                 appNameInput.required = true;
-                baseUrlInput.value = ''; // 새 앱 등록 시 주소창 초기화
-                baseUrlInput.required = true;
+                baseUrlInput.value = '';
+                baseUrlInput.required = true; 
             } else {
                 appNameInput.style.display = 'none';
                 appNameInput.required = false;
                 appNameInput.value = '';
                 
-                // 기존에 등록된 앱을 선택했다면 저장되어 있던 base_url을 가져와서 채워줍니다.
                 const appInfo = currentVersionsData[this.value];
                 if (appInfo && appInfo.base_url) {
                     baseUrlInput.value = appInfo.base_url;
-                    baseUrlInput.required = false; // 기존 주소가 있으므로 필수 입력 해제 가능
+                    baseUrlInput.required = false; 
                 } else {
                     baseUrlInput.value = '';
-                    baseUrlInput.required = true;
+                    baseUrlInput.required = false; 
                 }
             }
         });
 
-        // 이름 결정 유틸
         function getSelectedAppName() {
             if (appSelect.value === '__NEW__') {
                 return appNameInput.value.trim();
@@ -213,7 +209,6 @@
             return appSelect.value;
         }
 
-        // 삭제 처리 함수
         async function deleteApp(appName) {
             if (!confirm(` 정말 '${appName}' 애플리케이션을 삭제하시겠습니까?`)) return;
 
@@ -222,10 +217,8 @@
                 if (response.ok) {
                     document.getElementById(`row-${appName}`).remove();
                     
-                    // 캐시 데이터에서도 삭제
                     delete currentVersionsData[appName];
                     
-                    // 드롭다운 옵션에서도 삭제
                     const optionToRemove = appSelect.querySelector(`option[value="${appName}"]`);
                     if (optionToRemove) optionToRemove.remove();
 
@@ -242,7 +235,6 @@
             }
         }
 
-        // 등록 및 수정 폼 제출
         document.getElementById('versionForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -262,7 +254,7 @@
                     body: JSON.stringify({ 
                         app_name: appName, 
                         version: version,
-                        base_url: baseUrl // 공백으로 넘겨도 서버단에서 매핑 처리됨
+                        base_url: baseUrl || null
                     }),
                 });
 
@@ -272,7 +264,6 @@
                     const emptyRow = document.getElementById('emptyRow');
                     if (emptyRow) emptyRow.remove();
 
-                    // 로컬 캐시 데이터 동적 갱신
                     currentVersionsData[appName] = {
                         latest_version: data.latest_version,
                         base_url: data.base_url,
@@ -303,7 +294,6 @@
                         `;
                         tbody.appendChild(tr);
 
-                        // 셀렉트 박스에 새로 등록된 앱 옵션 동적 추가
                         const newOpt = document.createElement('option');
                         newOpt.value = data.app_name;
                         newOpt.textContent = data.app_name;
@@ -313,6 +303,7 @@
                     document.getElementById('versionForm').reset();
                     appNameInput.style.display = 'none';
                     appNameInput.required = false;
+                    baseUrlInput.required = false; 
                 } else {
                     alert(`오류: ${data.detail || '버전 업데이트에 실패했습니다.'}`);
                 }
