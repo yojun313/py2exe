@@ -1,18 +1,25 @@
 {
-    "apps": [
-      {
-        "APP_NAME": "YourAppName",
-        "PROJECT_DIR": "C:/path/to/your_app_project",
-        "VERSION_PATTERN": "YourAppName_([\\w.\\-]+)$",
-        "DEFAULT_SPEC_NAME": "build.spec",
-        "DEFAULT_ISS_NAME": "setup.iss",
-        "ISS_VERSION_PATTERN": "^\\s*#define\\s+MyAppVersion\\s+\"([\\w.\\-]+)\"",
-        "EXE_DIRECTORY": "C:/path/to/your_app_project/dist",
-        "OUTPUT_DIRECTORY": "C:/path/to/your_app_project/output",
-        "VENV_PYTHON": "C:/path/to/your_app_project/venv/Scripts/python.exe"
-      }
-    ],
-    "common": {
-      "INNO_SETUP_EXE": "C:/Program Files (x86)/Inno Setup 6/ISCC.exe"
+  "common": {
+    "INNO_SETUP_EXE": "C:/Program Files (x86)/Inno Setup 6/ISCC.exe",
+    "VERSION_API_URL": "http://localhost:3009"
+  },
+  "apps": [
+    {
+      "APP_NAME": "YourAppName",
+      "PROJECT_DIR": "C:/path/to/your_app_project",
+
+      "VENV_PYTHON": "C:/path/to/your_app_project/.venv/Scripts/python.exe",
+      "EXE_DIRECTORY": "exe",
+      "OUTPUT_DIRECTORY": "output",
+      "SPEC_FILE": "build.spec",
+      "ISS_FILE": "setup.iss",
+      "ICON_PATH": "assets/imgs/icon.ico",
+      "BASE_URL": "https://pub-xxxxxxxx.r2.dev",
+      "UPLOAD_PREFIX": ""
+    },
+    {
+      "APP_NAME": "MinimalApp",
+      "PROJECT_DIR": "~/projects/minimal_app"
     }
-  }
+  ]
+}

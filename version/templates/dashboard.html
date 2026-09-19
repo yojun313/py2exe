@@ -204,8 +204,8 @@
         <div class="card">
             <!-- 탭 전환 -->
             <div class="tab-bar">
-                <button type="button" class="tab-btn active" onclick="switchTab('update')">기존 앱 버전 업데이트</button>
-                <button type="button" class="tab-btn" onclick="switchTab('new')">새 애플리케이션 등록</button>
+                <button type="button" class="tab-btn active" data-tab="update">기존 앱 버전 업데이트</button>
+                <button type="button" class="tab-btn" data-tab="new">새 애플리케이션 등록</button>
             </div>
 
             <!-- ── 패널 1: 기존 앱 버전 업데이트 ── -->
@@ -245,7 +245,7 @@
                     <div class="form-row">
                         <div class="field-wrap">
                             <span class="field-label">애플리케이션 이름<span class="required-star">*</span></span>
-                            <input type="text" id="newAppName" placeholder="예: SkyboxAuto" required>
+                            <input type="text" id="newAppName" placeholder="예: SkyboxAuto" pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" title="영문/숫자/._- 만 사용" required>
                         </div>
                         <div class="field-wrap">
                             <span class="field-label">초기 버전<span class="required-star">*</span></span>
@@ -279,13 +279,13 @@
                 </thead>
                 <tbody id="versionTableBody">
                     {% for app_name, info in versions.items() %}
-                    <tr id="row-{{ app_name }}">
+                    <tr data-app="{{ app_name }}">
                         <td class="app-name">{{ app_name }}</td>
                         <td><span class="version-badge">{{ info.latest_version }}</span></td>
-                        <td><a href="{{ info.download_url }}" class="url-link" target="_blank">{{ info.download_url }}</a></td>
-                        <td><a href="{{ info.update_url }}" class="url-link" target="_blank">{{ info.update_url }}</a></td>
+                        <td><a href="{{ info.download_url }}" class="url-link" target="_blank" rel="noopener">{{ info.download_url }}</a></td>
+                        <td><a href="{{ info.update_url }}" class="url-link" target="_blank" rel="noopener">{{ info.update_url }}</a></td>
                         <td style="text-align: center;">
-                            <button type="button" class="btn-delete" onclick="deleteApp('{{ app_name }}')">삭제</button>
+                            <button type="button" class="btn-delete">삭제</button>
                         </td>
                     </tr>
                     {% else %}
@@ -299,179 +299,176 @@
     </div>
 
     <script>
-        // 서버에서 전달된 현재 버전 데이터
+        // 서버에서 전달된 현재 버전 데이터 (앱 이름 → 정보)
         const currentVersionsData = {{ versions|tojson }};
+
+        const $ = (id) => document.getElementById(id);
+        const el = (tag, props = {}, children = []) => {
+            const node = document.createElement(tag);
+            Object.assign(node, props);
+            for (const child of children) node.append(child);
+            return node;
+        };
 
         /* ── 탭 전환 ── */
         function switchTab(tab) {
-            document.querySelectorAll('.tab-btn').forEach((btn, i) => {
-                btn.classList.toggle('active', (i === 0 && tab === 'update') || (i === 1 && tab === 'new'));
+            document.querySelectorAll('.tab-btn').forEach((btn) => {
+                btn.classList.toggle('active', btn.dataset.tab === tab);
             });
-            document.getElementById('panel-update').classList.toggle('active', tab === 'update');
-            document.getElementById('panel-new').classList.toggle('active', tab === 'new');
+            $('panel-update').classList.toggle('active', tab === 'update');
+            $('panel-new').classList.toggle('active', tab === 'new');
         }
-
-        /* ── 기존 앱 선택 시 Base URL 미리보기 ── */
-        document.getElementById('existingAppSelect').addEventListener('change', function () {
-            const appInfo = currentVersionsData[this.value];
-            document.getElementById('existingBaseUrlPreview').value =
-                (appInfo && appInfo.base_url) ? appInfo.base_url : '';
+        document.querySelectorAll('.tab-btn').forEach((btn) => {
+            btn.addEventListener('click', () => switchTab(btn.dataset.tab));
         });
 
-        /* ── 공통: 테이블 행 추가/갱신 ── */
+        /* ── 기존 앱 선택 시 Base URL 미리보기 ── */
+        $('existingAppSelect').addEventListener('change', function () {
+            const appInfo = currentVersionsData[this.value];
+            $('existingBaseUrlPreview').value = (appInfo && appInfo.base_url) ? appInfo.base_url : '';
+        });
+
+        /* ── 공통 fetch: JSON 응답 + 오류 메시지 처리 ── */
+        async function api(url, options) {
+            let response;
+            try {
+                response = await fetch(url, options);
+            } catch {
+                throw new Error('서버와 통신 중 오류가 발생했습니다.');
+            }
+            let data = {};
+            try { data = await response.json(); } catch { /* 본문 없음 */ }
+            if (!response.ok) {
+                const detail = Array.isArray(data.detail)
+                    ? data.detail.map((d) => d.msg || JSON.stringify(d)).join(', ')
+                    : (data.detail || `HTTP ${response.status}`);
+                throw new Error(detail);
+            }
+            return data;
+        }
+
+        /* ── 테이블 행 만들기 (innerHTML 대신 DOM API 로 XSS 방지) ── */
+        function buildRow(appName, info) {
+            const link = (href) => el('a', { href, className: 'url-link', target: '_blank', rel: 'noopener', textContent: href });
+            const deleteBtn = el('button', { type: 'button', className: 'btn-delete', textContent: '삭제' });
+            deleteBtn.addEventListener('click', () => deleteApp(appName));
+            const actionCell = el('td', {}, [deleteBtn]);
+            actionCell.style.textAlign = 'center';
+            const row = el('tr', {}, [
+                el('td', { className: 'app-name', textContent: appName }),
+                el('td', {}, [el('span', { className: 'version-badge', textContent: info.latest_version })]),
+                el('td', {}, [link(info.download_url)]),
+                el('td', {}, [link(info.update_url)]),
+                actionCell,
+            ]);
+            row.dataset.app = appName;
+            return row;
+        }
+
+        function findRow(appName) {
+            return [...$('versionTableBody').querySelectorAll('tr[data-app]')].find((r) => r.dataset.app === appName);
+        }
+
+        function renderEmptyRowIfNeeded() {
+            const tbody = $('versionTableBody');
+            if (tbody.querySelector('tr[data-app]')) return;
+            const cell = el('td', { colSpan: 5, textContent: '등록된 애플리케이션이 없습니다.' });
+            cell.style.cssText = 'text-align:center;color:#71717a;';
+            tbody.replaceChildren(el('tr', { id: 'emptyRow' }, [cell]));
+        }
+
         function upsertTableRow(data) {
-            const emptyRow = document.getElementById('emptyRow');
+            const emptyRow = $('emptyRow');
             if (emptyRow) emptyRow.remove();
 
-            // 클라이언트 캐시 갱신
             currentVersionsData[data.app_name] = {
                 latest_version: data.latest_version,
                 base_url: data.base_url,
                 download_url: data.download_url,
-                update_url: data.update_url
+                update_url: data.update_url,
             };
 
-            const existingRow = document.getElementById(`row-${data.app_name}`);
-            if (existingRow) {
-                existingRow.querySelector('.version-badge').textContent = data.latest_version;
-                const links = existingRow.querySelectorAll('.url-link');
-                links[0].href = data.download_url;
-                links[0].textContent = data.download_url;
-                links[1].href = data.update_url;
-                links[1].textContent = data.update_url;
+            const newRow = buildRow(data.app_name, data);
+            const existing = findRow(data.app_name);
+            if (existing) {
+                existing.replaceWith(newRow);
             } else {
-                const tbody = document.getElementById('versionTableBody');
-                const tr = document.createElement('tr');
-                tr.id = `row-${data.app_name}`;
-                tr.innerHTML = `
-                    <td class="app-name">${data.app_name}</td>
-                    <td><span class="version-badge">${data.latest_version}</span></td>
-                    <td><a href="${data.download_url}" class="url-link" target="_blank">${data.download_url}</a></td>
-                    <td><a href="${data.update_url}" class="url-link" target="_blank">${data.update_url}</a></td>
-                    <td style="text-align: center;">
-                        <button type="button" class="btn-delete" onclick="deleteApp('${data.app_name}')">삭제</button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-
-                // 기존 앱 선택 드롭다운에도 추가
-                const select = document.getElementById('existingAppSelect');
-                const opt = document.createElement('option');
-                opt.value = data.app_name;
-                opt.textContent = data.app_name;
-                select.appendChild(opt);
+                $('versionTableBody').appendChild(newRow);
+                $('existingAppSelect').appendChild(el('option', { value: data.app_name, textContent: data.app_name }));
             }
         }
 
         /* ── 앱 삭제 ── */
         async function deleteApp(appName) {
             if (!confirm(`정말 '${appName}' 애플리케이션을 삭제하시겠습니까?`)) return;
-
             try {
-                const response = await fetch(`/api/version/${appName}`, { method: 'DELETE' });
-                if (response.ok) {
-                    document.getElementById(`row-${appName}`).remove();
-                    delete currentVersionsData[appName];
-
-                    // 드롭다운에서도 제거
-                    const opt = document.getElementById('existingAppSelect').querySelector(`option[value="${appName}"]`);
-                    if (opt) opt.remove();
-
-                    // 미리보기 초기화 (삭제된 앱이 선택돼 있던 경우)
-                    const sel = document.getElementById('existingAppSelect');
-                    if (sel.value === appName || sel.value === '') {
-                        sel.value = '';
-                        document.getElementById('existingBaseUrlPreview').value = '';
-                    }
-
-                    const tbody = document.getElementById('versionTableBody');
-                    if (tbody.children.length === 0) {
-                        tbody.innerHTML = `<tr id="emptyRow"><td colspan="5" style="text-align:center;color:#71717a;">등록된 애플리케이션이 없습니다.</td></tr>`;
-                    }
-                } else {
-                    const data = await response.json();
-                    alert(`삭제 실패: ${data.detail || '알 수 없는 오류'}`);
-                }
-            } catch {
-                alert('서버와 통신 중 오류가 발생했습니다.');
+                await api(`/api/version/${encodeURIComponent(appName)}`, { method: 'DELETE' });
+            } catch (err) {
+                alert(`삭제 실패: ${err.message}`);
+                return;
             }
+            const row = findRow(appName);
+            if (row) row.remove();
+            delete currentVersionsData[appName];
+
+            const select = $('existingAppSelect');
+            [...select.options].filter((o) => o.value === appName).forEach((o) => o.remove());
+            if (!select.value) $('existingBaseUrlPreview').value = '';
+            renderEmptyRowIfNeeded();
         }
 
         /* ── 패널 1: 기존 앱 버전 업데이트 ── */
-        document.getElementById('updateForm').addEventListener('submit', async (e) => {
+        $('updateForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-
-            const appName = document.getElementById('existingAppSelect').value;
-            const version = document.getElementById('updateVersion').value.trim();
-
-            if (!appName) {
-                alert('앱을 선택해주세요.');
-                return;
-            }
+            const appName = $('existingAppSelect').value;
+            const version = $('updateVersion').value.trim();
+            if (!appName) { alert('앱을 선택해주세요.'); return; }
 
             try {
-                const response = await fetch('/api/version', {
+                const data = await api('/api/version', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    // base_url은 서버에서 무시되므로 전송하지 않습니다.
                     body: JSON.stringify({ app_name: appName, version }),
                 });
-
-                const data = await response.json();
-                if (response.ok) {
-                    upsertTableRow(data);
-                    document.getElementById('existingBaseUrlPreview').value = data.base_url;
-                    document.getElementById('updateVersion').value = '';
-                } else {
-                    alert(`오류: ${data.detail || '버전 업데이트에 실패했습니다.'}`);
-                }
-            } catch {
-                alert('서버와 통신 중 오류가 발생했습니다.');
+                upsertTableRow(data);
+                $('existingBaseUrlPreview').value = data.base_url;
+                $('updateVersion').value = '';
+            } catch (err) {
+                alert(`오류: ${err.message}`);
             }
         });
 
         /* ── 패널 2: 새 앱 등록 ── */
-        document.getElementById('newAppForm').addEventListener('submit', async (e) => {
+        $('newAppForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-
-            const appName = document.getElementById('newAppName').value.trim();
-            const version = document.getElementById('newVersion').value.trim();
-            const baseUrl = document.getElementById('newBaseUrl').value.trim();
-
-            if (!appName || !version || !baseUrl) {
-                alert('모든 항목을 입력해주세요.');
-                return;
-            }
-
-            // 이미 등록된 앱 이름인지 클라이언트에서 먼저 확인
+            const appName = $('newAppName').value.trim();
+            const version = $('newVersion').value.trim();
+            const baseUrl = $('newBaseUrl').value.trim();
+            if (!appName || !version || !baseUrl) { alert('모든 항목을 입력해주세요.'); return; }
             if (currentVersionsData[appName] !== undefined) {
-                alert(`'${appName}'은(는) 이미 등록된 앱입니다. 버전 업데이트는 [기존 앱 버전 업데이트] 탭을 이용해주세요.`);
+                alert(`'${appName}'은(는) 이미 등록된 앱입니다. [기존 앱 버전 업데이트] 탭을 이용해주세요.`);
                 return;
             }
 
             try {
-                const response = await fetch('/api/version', {
+                const data = await api('/api/version', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ app_name: appName, version, base_url: baseUrl }),
                 });
-
-                const data = await response.json();
-                if (response.ok) {
-                    upsertTableRow(data);
-                    document.getElementById('newAppForm').reset();
-                    // 등록 완료 후 업데이트 탭으로 전환
-                    switchTab('update');
-                    // 새로 등록한 앱을 드롭다운에서 선택 상태로 설정
-                    const sel = document.getElementById('existingAppSelect');
-                    sel.value = appName;
-                    document.getElementById('existingBaseUrlPreview').value = data.base_url;
-                } else {
-                    alert(`오류: ${data.detail || '앱 등록에 실패했습니다.'}`);
-                }
-            } catch {
-                alert('서버와 통신 중 오류가 발생했습니다.');
+                upsertTableRow(data);
+                $('newAppForm').reset();
+                switchTab('update');
+                $('existingAppSelect').value = appName;
+                $('existingBaseUrlPreview').value = data.base_url;
+            } catch (err) {
+                alert(`오류: ${err.message}`);
             }
+        });
+
+        /* ── 서버 렌더링된 행의 삭제 버튼 연결 ── */
+        document.querySelectorAll('tr[data-app] .btn-delete').forEach((btn) => {
+            btn.addEventListener('click', () => deleteApp(btn.closest('tr').dataset.app));
         });
     </script>
 </body>

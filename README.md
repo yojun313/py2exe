@@ -1,77 +1,174 @@
 # py2exe
 
-py2exe는 Python 스크립트를 Windows 실행 파일(.exe) 및 설치 프로그램으로 패키징하고, Cloudflare 배포 및 버전 관리를 자동화하기 위한 통합 도구 모음입니다. 
+Python 앱을 Windows 실행 파일(.exe)과 설치 프로그램으로 패키징하고, Cloudflare R2 업로드와 버전 관리까지
+버튼 하나로 처리하는 통합 도구입니다.
 
 <img src="app.png" alt="screenshot">
 
-**PySide6 기반의 GUI 빌드 도구**와 **FastAPI 기반의 버전 관리 API 서버**를 동시에 포함하고 있어, 빌드부터 클라이언트 배포/업데이트 확인 릴리스 파이프라인까지 한 번에 관리할 수 있습니다.
+- **GUI 빌드 도구 (`main.py`)** – PySide6. 앱 선택 → 버전 선택 → 빌드/배포 파이프라인 실행, 실시간 로그, 취소.
+- **CLI (`builder.py`, `cloudflare.py`)** – 같은 파이프라인을 터미널/CI 에서 실행.
+- **버전 관리 API 서버 (`version/run.py`)** – FastAPI. 클라이언트 앱이 업데이트 필요 여부를 확인하는 API 와 웹 대시보드.
 
-## 주요 기능
-- **GUI 기반 빌드 파이프라인**: PySide6 화면에서 버전을 선택(재사용/패치/+1/직접 입력)하고 버튼 클릭 한 번으로 PyInstaller 빌드 수행
-- **멀티스레딩 빌드**: 빌드 프로세스가 비동기(QThread)로 실행되어 UI가 멈추지 않고, 실시간 콘솔 로그를 대시보드에서 확인 가능
-- **인스톨러 자동 생성**: `Inno Setup(ISCC)`과 연동하여 빌드된 바이너리를 기반으로 표준 Windows 설치 파일(`.exe`)을 자동 빌드
-- **원격 배포 자동화**: 빌드가 완료된 업데이트용 파일 및 설치 파일을 Cloudflare(R2/Workers 등)에 자동 업로드
-- **중앙 집중식 버전 관리 서버**: FastAPI 서버를 통해 다중 애플리케이션의 최신 버전을 관리하고, 클라이언트의 업데이트 필요 여부(`update_required`) 판단 API 및 모니터링 웹 대시보드 제공
+## 파이프라인
 
-## 요구사항
-- Windows 환경 (PyInstaller 바이너리 및 Inno Setup 컴파일러 실행용)
-- **Inno Setup (ISCC)** 설치 및 환경 변수 등록 필요
-
-## 설치 및 준비
-
-### 1. 의존성 설치 및 가상환경 활성화 (uv 기준)
-
-```bash
-uv sync
-# 가상환경 활성화
-.venv\Scripts\activate     # Windows
+```
+PyInstaller 빌드 ─▶ <App>_<ver>_update.exe 복사 ─▶ Inno Setup 인스톨러 ─▶ R2 업로드 ─▶ 버전 서버 등록
+   (필수)                 (필수)                     (옵션)              (옵션)         (옵션)
 ```
 
-### 2. 환경 변수 및 빌드 프로젝트 설정
+산출물 위치 (앱별 `PROJECT_DIR` 기준 기본값):
 
-`.env.example` 파일을 참고해 `.env` 파일을 프로젝트 루트 디렉터리에 생성하고 빌드 및 경로 설정 및 Cloudflare 인증 정보 등을 입력합니다.
+| 종류 | 경로 |
+|---|---|
+| PyInstaller 결과 폴더 | `exe/<App>_<ver>/` |
+| 업데이트용 단일 exe | `exe/<App>_<ver>_update.exe` |
+| Inno Setup 인스톨러 | `output/<App>_<ver>.exe` |
 
-> ⚠️ **중요 (빌드 대상 프로젝트 설정):**
-> 실제 빌드를 진행하기 전에, `form/` 디렉터리에 있는 템플릿 파일들을 **실제 빌드할 대상 프로젝트의 루트 디렉터리로 복사(이동)**한 후 해당 프로젝트의 사양에 맞게 수정하여 사용해야 합니다.
-> * **`build.spec`**: 빌드 대상 앱의 엔트리포인트 스크립트 경로 및 포함할 데이터 파일/에셋 경로를 프로젝트에 맞게 수정하세요.
-> * **`setup.iss`**: 인스톨러 생성 시 반영될 프로그램 이름, 제작사 정보, 출력 경로 등을 프로젝트 사양에 맞게 변경하세요.
+## 요구 사항
+
+- Python 3.11+ (uv 권장)
+- Windows: PyInstaller 로 exe 를 만들고 Inno Setup 을 실행하려면 Windows 가 필요합니다.
+  (GUI/버전 서버/테스트 자체는 다른 OS 에서도 실행됩니다.)
+- [Inno Setup 6](https://jrsoftware.org/isinfo.php) – 인스톨러를 만들 때만 필요. 기본 설치 경로·PATH 에서 자동 탐색합니다.
+- 빌드 대상 프로젝트의 가상환경에 `pyinstaller` 가 설치되어 있어야 합니다.
+
+## 설치
+
+```bash
+uv sync                # 런타임 의존성
+uv sync --group dev    # + pytest, httpx (테스트용)
+```
+
+## 설정
+
+### 1) `config.json` – 빌드할 앱 목록
+
+`config.example.json` 을 복사해 `config.json` 을 만듭니다. **필수 값은 `APP_NAME` 과 `PROJECT_DIR` 두 개뿐**이고 나머지는
+기본값이 있습니다. 상대 경로는 `PROJECT_DIR` 기준이며 `~` 와 환경변수를 쓸 수 있습니다.
+
+```json
+{
+  "common": {
+    "INNO_SETUP_EXE": "C:/Program Files (x86)/Inno Setup 6/ISCC.exe",
+    "VERSION_API_URL": "http://localhost:3009"
+  },
+  "apps": [
+    { "APP_NAME": "MyApp", "PROJECT_DIR": "C:/GitHub/myapp" }
+  ]
+}
+```
+
+| 키 | 기본값 | 설명 |
+|---|---|---|
+| `APP_NAME` | (필수) | 앱 이름. 파일명에 쓰이므로 영문/숫자/`._-` 만 |
+| `PROJECT_DIR` | (필수) | 빌드 대상 프로젝트 루트 |
+| `VENV_PYTHON` | `.venv`/`venv`/`env` 자동 탐색 | PyInstaller 가 설치된 파이썬 |
+| `EXE_DIRECTORY` | `exe` | PyInstaller 출력 폴더 |
+| `OUTPUT_DIRECTORY` | `output` | 인스톨러 출력 폴더 |
+| `SPEC_FILE` | `build.spec` | PyInstaller spec (구 `DEFAULT_SPEC_NAME` 도 인식) |
+| `ISS_FILE` | `setup.iss` | Inno Setup 스크립트 (구 `DEFAULT_ISS_NAME` 도 인식) |
+| `ICON_PATH` | `assets/imgs/icon.ico` | 인스톨러 아이콘. 없으면 아이콘 없이 진행 |
+| `EXE_NAME` | `APP_NAME` | spec 의 `EXE(name=...)` 을 다르게 쓰고 싶을 때 |
+| `VERSION_PATTERN` | `^<App>_(\d+(?:\.\d+)*)$` | `exe/` 폴더 이름에서 버전을 뽑는 정규식 |
+| `BASE_URL` | `.env` 의 `R2_PUBLIC_BASE_URL` | 버전 서버 등록 시 다운로드 주소 (신규 앱은 필수) |
+| `UPLOAD_PREFIX` | (없음) | R2 객체 키 앞에 붙일 폴더 (`releases/myapp`) |
+
+`common` 의 값은 같은 이름의 환경변수(`INNO_SETUP_EXE`, `VERSION_API_URL`)로 덮어쓸 수 있고, 설정 파일 위치는
+`PY2EXE_CONFIG` 환경변수로 바꿀 수 있습니다.
+
+### 2) `.env` – Cloudflare R2 인증 정보
+
+R2 업로드를 쓸 때만 필요합니다. `.env.example` 참고.
+
+```
+ACCESS_KEY_ID=...
+SECRET_ACCESS_KEY=...
+ACCOUNT_ID=...
+BUCKET_NAME=...
+R2_PUBLIC_BASE_URL=https://pub-xxxx.r2.dev   # 선택
+```
+
+### 3) 빌드 대상 프로젝트에 템플릿 복사
+
+`form/build.spec` 과 `form/setup.iss` 를 **빌드할 프로젝트 루트**로 복사한 뒤 프로젝트에 맞게 수정합니다.
+
+- **`build.spec`**: `MAIN_SCRIPT`, `datas`, `hiddenimports` 만 손보면 됩니다.
+  `EXE(name=)`, `COLLECT(name=)`, `APP_PATH` 는 빌드 시 자동으로 채워지므로 값에 무엇이 적혀 있든 상관없습니다.
+  `COLLECT` 가 없는 onefile spec 도 지원합니다.
+- **`setup.iss`**: `MyAppPublisher` 등 고정 정보만 수정합니다. `#ifndef` 로 감싼 값
+  (`MyAppName`, `MyAppVersion`, `MyAppExeName`, `BuildDir`, `OutputDir`, `SourceIconPath`)은 빌드 시 `/D` 로 주입됩니다.
+  기존에 쓰던 iss 파일이 있다면 그대로 써도 됩니다 – `#define MyAppVersion` 줄만 있으면 버전이 교체됩니다.
 
 ## 사용법
 
-### 1. GUI 빌드 및 배포 시스템 (`main.py`)
+### GUI
 
 ```bash
-python main.py
+uv run python main.py
 ```
 
-#### 주요 조작 방식:
+1. 상단에서 **앱**을 고릅니다. 현재 빌드 버전, 경로, 도구 감지 상태가 표시됩니다.
+2. **빌드 버전**: 현재 버전 재사용 / 패치 +1 / 직접 입력. 빌드될 버전이 미리 표시됩니다.
+3. **배포 옵션**
+   - Inno Setup 인스톨러 생성 – 끄면 PyInstaller 결과와 `_update.exe` 만 만듭니다.
+   - Cloudflare R2 업로드 – `.env` 가 설정돼 있으면 기본 켜짐.
+   - 업데이트도 전체 설치 파일로 배포 – 인스톨러를 `_update.exe` 이름으로도 업로드합니다.
+   - 버전 서버에 최신 버전 등록 – `VERSION_API_URL` 이 있으면 기본 켜짐.
+4. **빌드 시작**. 빌드 전에 spec/iss/ISCC/인증 정보를 먼저 검사해서 문제가 있으면 바로 알려줍니다.
+   진행 중에는 **취소**로 중단할 수 있습니다.
 
-1. **버전 모드 선택**:
-* `현재 버전 재사용`: 이전 최종 빌드 버전을 덮어씁니다.
-* `패치 버전 +1`: 기존 버전이 `1.0.1` 이라면 자동 분석 후 `1.0.2`로 넘버링을 올려 빌드합니다.
-* `직접 입력`: 우측 텍스트박스에 유효한 유의적 버전(Semantic Versioning, 예: `1.2.0`)을 기입합니다.
+### CLI
 
+```bash
+uv run python builder.py                       # 등록된 앱 목록
+uv run python builder.py MyApp                 # 패치 +1 로 전체 파이프라인
+uv run python builder.py MyApp --version 2.0.0 --register
+uv run python builder.py MyApp --no-installer --no-upload   # 로컬 빌드만
 
-2. **빌드 시작**: 버튼을 누르면 내부 백그라운드 스레드에서 아래의 파이프라인이 연속 실행됩니다.
-* `PyInstaller` 구동 ➔ `_update.exe` 복사본 생성 ➔ Cloudflare 원격 업로드 ➔ `Inno Setup` 스크립트의 버전 매크로 갱신 ➔ `ISCC` 최종 인스톨러 빌드 ➔ 설치 파일 원격 업로드 완료.
+uv run python cloudflare.py --app MyApp --latest             # output 폴더의 최신 인스톨러 업로드
+uv run python cloudflare.py --app MyApp --version 1.2.3 --with-update
+uv run python cloudflare.py --file path/to/file.exe --key releases/file.exe
+```
 
-
-3. 모든 과정과 에러 메시지는 하단 **빌드 로그** 뷰어에 실시간 스트리밍됩니다.
-
-### 2. 버전 관리 API 서버 (`version/run.py`)
-
-클라이언트 프로그램들이 켜질 때 업데이트가 필요한지 체크하는 백엔드 서버이자 관리 대시보드입니다.
+### 버전 관리 서버
 
 ```bash
 cd version
-python run.py
+uv run python run.py            # http://0.0.0.0:3009
 ```
 
-*서버는 기본적으로 `http://0.0.0.0:3009` 포트에서 호스팅됩니다.*
+환경변수: `VERSION_API_HOST`, `VERSION_API_PORT`, `VERSION_API_RELOAD=1`, `VERSIONS_FILE`.
 
-#### 엔드포인트 안내:
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/dashboard` | 앱 목록/버전 관리 웹 대시보드 (`/` 는 여기로 리다이렉트) |
+| GET | `/health` | 상태 확인 |
+| GET | `/api/versions` | 전체 앱 목록 |
+| GET | `/api/version/{app}` | 특정 앱 최신 버전 |
+| GET | `/api/version/{app}/check?client_version=1.0.0` | 업데이트 필요 여부 (`update_required`) |
+| POST | `/api/version` | 최신 버전 등록. `{app_name, version, base_url?}` – 신규 앱은 `base_url` 필수, 기존 앱은 주면 갱신 |
+| DELETE | `/api/version/{app}` | 앱 삭제 |
 
-* **`GET /dashboard`**: 현재 등록된 모든 애플리케이션의 최신 버전을 시각적으로 확인하는 Jinja2 템플릿 웹 페이지
-* **`GET /api/versions`**: `versions.json`에 기록된 전체 앱 목록 및 버전 조회
-* **`GET /api/version/{app_name}`**: 특정 앱의 최신 버전 단독 조회
-* **`POST /api/version`**: 특정 앱의 최신 버전을 강제 수동 업데이트/등록 (JSON payload)
+클라이언트 앱에서는 시작 시 `/api/version/{app}/check` 를 호출해 `update_required` 가 참이면 `update_url`
+(단일 exe) 또는 `download_url`(인스톨러)을 받아 갱신하면 됩니다.
+
+## 테스트
+
+```bash
+uv run --group dev pytest
+```
+
+빌드 로직(버전 계산, spec/iss 치환, 서브프로세스 취소, 설정 검증)과 버전 API 를 검증합니다. PyInstaller/Inno Setup 실행은 포함하지 않습니다.
+
+## 구조
+
+```
+main.py            PySide6 GUI (워커 스레드에서 BuildPipeline 실행)
+builder.py         빌드 파이프라인 + CLI
+config.py          config.json / .env 로딩·검증 (AppConfig, Settings)
+cloudflare.py      R2 업로더 + CLI
+version_client.py  버전 서버 호출
+version/run.py     FastAPI 버전 서버
+form/              build.spec, setup.iss 템플릿
+tests/             pytest
+```
